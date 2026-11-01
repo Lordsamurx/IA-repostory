@@ -48,10 +48,25 @@ EOF
 c_step "1/7  Preparando o servidor"
 # ---------------------------------------------------------------------
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates git python3 unzip dnsutils >/dev/null
+apt-get install -y -qq curl ca-certificates git python3 unzip dnsutils gnupg >/dev/null
 if ! command -v docker >/dev/null 2>&1; then
-  echo "Instalando o Docker…"
-  curl -fsSL https://get.docker.com | sh >/dev/null
+  # Repositório oficial do Docker com a chave GPG deles: o apt confere a assinatura
+  # de cada pacote (mais seguro que executar um script baixado com curl | sh).
+  echo "Instalando o Docker pelo repositório oficial…"
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  # impressão digital publicada pela Docker para a chave de assinatura dos pacotes
+  DOCKER_FPR="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+  if ! gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc 2>/dev/null | grep -q "fpr:::::::::$DOCKER_FPR:"; then
+    c_err "A chave do repositório do Docker não confere com a oficial. Instalação interrompida por segurança."
+    exit 1
+  fi
+  . /etc/os-release
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" \
+    > /etc/apt/sources.list.d/docker.list
+  apt-get update -qq
+  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
 fi
 systemctl enable --now docker >/dev/null 2>&1 || true
 docker compose version >/dev/null 2>&1 || { c_err "Docker Compose não encontrado."; exit 1; }
@@ -182,8 +197,10 @@ cat <<EOF
    1. Entrar no CRM e concluir o onboarding (negócio, fuso, funil).
    2. Menu Conexões → Conectar novo WhatsApp.
    3. Mandar uma mensagem de outro número e responder pelo Inbox.
-   4. Adicionar a equipe em Configurações → Equipe. Contas criadas fora
-      do CRM não enxergam nenhum dado (regras de segurança do banco).
+   4. Segurança: Supabase → Authentication → Sign In / Providers →
+      desligue "Allow new users to sign up". Para adicionar alguém da
+      equipe: crie o login em Authentication → Users → Add user
+      (Auto Confirm) e cadastre o mesmo e-mail em Configurações → Equipe.
 
   Comandos úteis (nesta pasta):
    docker compose logs -f app     # ver logs

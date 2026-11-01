@@ -310,15 +310,16 @@ export function createServer(input = loadConfig()) {
     const user = await who.json().catch(() => null);
     const uid = typeof user?.id === 'string' ? user.id : '';
     if (!uid || uid.length > 100) return false;
-    // A pessoa precisa estar na equipe: a RLS só devolve a linha de `users` para membros.
-    const url = new URL(`${cfg.supabaseUrl}/rest/v1/crm_records`);
-    url.searchParams.set('select', 'id');
-    url.searchParams.set('collection', 'eq.users');
-    url.searchParams.set('id', `eq.${uid}`);
-    const rows = await fetch(url, { headers, signal: AbortSignal.timeout(SUPABASE_TIMEOUT_MS) });
-    if (!rows.ok) return false;
-    const found = await rows.json().catch(() => []);
-    return Array.isArray(found) && found.length === 1;
+    // A pessoa precisa estar na equipe. A mesma função do banco usada pela RLS decide:
+    // vínculo pelo ID do login ou pelo e-mail (ver supabase/schema.sql).
+    const rpc = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/crm_is_member`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(SUPABASE_TIMEOUT_MS),
+    });
+    if (!rpc.ok) return false;
+    return (await rpc.json().catch(() => false)) === true;
   }
 
   // -------------------------------------------------------------- IA

@@ -89,11 +89,10 @@ export async function fakeSupabase() {
       if (auth === `Bearer ${OUTSIDER_TOKEN}`) return json(res, 200, { id: OUTSIDER_ID, email: 'fora@teste.com' });
       return json(res, 401, { message: 'invalid JWT' });
     }
-    if (url.pathname === '/rest/v1/crm_records') {
+    if (url.pathname === '/rest/v1/rpc/crm_is_member' && req.method === 'POST') {
       counts.rest++;
-      const uid = auth === `Bearer ${MEMBER_TOKEN}` ? MEMBER_ID : auth === `Bearer ${OUTSIDER_TOKEN}` ? OUTSIDER_ID : null;
-      const visible = uid === MEMBER_ID && url.searchParams.get('id') === `eq.${MEMBER_ID}` && url.searchParams.get('collection') === 'eq.users';
-      return json(res, 200, visible ? [{ id: MEMBER_ID }] : []);
+      // como a função do banco: true só para quem está na equipe
+      return json(res, 200, auth === `Bearer ${MEMBER_TOKEN}`);
     }
     json(res, 404, { message: 'rota não existe no fake' });
   });

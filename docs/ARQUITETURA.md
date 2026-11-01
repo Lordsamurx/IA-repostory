@@ -74,9 +74,11 @@ a cada 15 s (no navegador de um admin): follow-ups vencidos, disparos agendados,
 
 ### Banco (Supabase)
 
-- **RLS:** só quem está na coleção `users` lê ou grava. Uma conta criada fora do CRM não enxerga nada. Configurações, conexões e usuários exigem perfil admin. Um gatilho impede que um atendente altere o próprio perfil de acesso.
+- **RLS:** só quem está na coleção `users` lê ou grava. O login do Supabase Auth é vinculado ao usuário da equipe pelo ID ou pelo **e-mail** (função `crm_my_user_id`). O **cadastro aberto fica desligado**: o admin cria o login no painel do Supabase e cadastra o mesmo e-mail no CRM. Uma conta criada fora da equipe não enxerga nada. Configurações, conexões e usuários exigem perfil admin. Um gatilho impede que quem não é admin altere o próprio perfil de acesso ou o próprio e-mail. O servidor de IA usa a mesma função (`crm_is_member`) para saber quem é da equipe.
+- **HSTS** com `includeSubDomains` (sem preload) no Caddy. **Docker** instalado pelo repositório oficial com a impressão digital da chave GPG conferida.
 - As funções `SECURITY DEFINER` têm `search_path` vazio e não são executáveis pelo papel anônimo. O papel `anon` não tem acesso à tabela.
-- `supabase/test-rls.sh` (`npm run test:rls`) sobe um PostgreSQL 16 temporário, aplica o schema duas vezes e confere 30 permissões de estranho, atendente, admin e anônimo.
+- `supabase/test-rls.sh` (`npm run test:rls`) sobe um PostgreSQL 16 temporário, aplica o schema duas vezes e confere 37 permissões de estranho, atendente, admin, anônimo e login vinculado por e-mail.
+- `SETUP-KIT/verificar.sh` roda **na VPS** depois da instalação e confere DNS, certificado, cabeçalhos, Supabase (RLS e cadastro aberto), containers e portas. O passo a passo completo de homologação está em [ROTEIRO-TESTE-VPS.md](ROTEIRO-TESTE-VPS.md).
 - A chave `service_role` é usada só pelo instalador e não fica salva.
 
 ### Servidor (`server/index.mjs`)

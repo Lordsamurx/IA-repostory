@@ -3,7 +3,8 @@
 	reverse_proxy app:8787
 	# Os demais cabeçalhos de segurança (CSP, X-Frame-Options, etc.) vêm do próprio app
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		# HSTS vale também para subdomínios do CRM (ex.: api.crm.suaempresa.com.br). Sem "preload": é reversível.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		-Server
 	}
 }

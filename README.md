@@ -94,6 +94,16 @@ O instalador:
 
 A chave `service_role` é usada só durante a instalação e **não fica salva** no servidor.
 
+Depois de instalar, confira tudo (DNS, HTTPS, cabeçalhos, Supabase, containers):
+
+```bash
+sudo bash SETUP-KIT/verificar.sh
+```
+
+Antes de ir para produção, siga o [roteiro de teste na VPS](docs/ROTEIRO-TESTE-VPS.md).
+
+**Equipe:** por segurança o cadastro aberto do Supabase fica desligado. Para adicionar alguém, crie o login em Supabase → Authentication → Users → Add user (Auto Confirm) e cadastre o mesmo e-mail em Configurações → Equipe.
+
 Para atualizar depois de mudar o código ou o `.env`:
 
 ```bash
@@ -121,6 +131,7 @@ server/index.mjs      API (IA) + serve a interface em produção
 server/test/          testes da API (node --test); apoio em server/support/
 supabase/schema.sql   tabela, RLS e Realtime
 supabase/test-rls.sh  teste do RLS em PostgreSQL 16 temporário
+SETUP-KIT/verificar.sh  checagem de segurança e funcionamento na VPS
 test/                 testes unitários do front (CSV, hash de senha)
 SETUP-KIT/            instalador e Caddyfile
 docs/                 arquitetura, design system, WhatsApp

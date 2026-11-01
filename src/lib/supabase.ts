@@ -7,12 +7,3 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 export const isSupabaseMode = Boolean(url && anonKey);
 
 export const supabase: SupabaseClient | null = isSupabaseMode ? createClient(url!, anonKey!) : null;
-
-/**
- * Cliente sem sessão persistida — usado para cadastrar atendentes
- * sem derrubar a sessão do administrador logado.
- */
-export function isolatedClient() {
-  if (!isSupabaseMode) return null;
-  return createClient(url!, anonKey!, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'leadflow-invite' } });
-}

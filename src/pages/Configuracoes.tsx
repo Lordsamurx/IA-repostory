@@ -3,7 +3,7 @@ import { ThumbsUp, Building2, CheckCircle2, Circle, Database, ListPlus, Download
 import { useMe, useStore } from '../store/useStore';
 import { Avatar, Badge, Button, Card, Confirm, Field, Input, Modal, PageHeader, Select, Switch, TagChip, Textarea } from '../components/ui';
 import { cn, fieldVar, pickColor, SWATCHES, uid } from '../lib/utils';
-import { isSupabaseMode, isolatedClient } from '../lib/supabase';
+import { isSupabaseMode } from '../lib/supabase';
 import { hashPassword } from '../lib/password';
 import { checkServerAI } from '../lib/ai';
 import { COLLECTIONS, type DataState } from '../data/seed';
@@ -156,21 +156,16 @@ function Equipe() {
   const save = async () => {
     if (isNew) {
       if (users.some((u) => u.email.toLowerCase() === form.email.toLowerCase())) return toast('Já existe um usuário com esse e-mail', 'error');
-      let id = form.id;
-      if (isSupabaseMode) {
-        // cria o login no Supabase Auth sem derrubar a sessão do administrador
-        setBusy(true);
-        const client = isolatedClient()!;
-        const { data, error } = await client.auth.signUp({ email: form.email, password: form.password ?? '' });
-        setBusy(false);
-        if (error || !data.user) return toast(`Não foi possível criar o login: ${error?.message ?? 'erro desconhecido'}`, 'error');
-        id = data.user.id;
-      }
+      // No modo Supabase o login é criado pelo admin no painel do Supabase (cadastro aberto
+      // desligado); aqui a pessoa entra na equipe e é vinculada ao login pelo e-mail.
+      const id = form.id;
+      setBusy(true);
       // no modo local a senha entra na conta só como hash; no Supabase ela fica no Auth
       const passwordHash = !isSupabaseMode && form.password ? await hashPassword(form.password) : undefined;
       const { password: _typed, ...rest } = form;
-      add('users', { ...rest, id, color: form.color || pickColor(form.name), passwordHash, password: undefined });
-      toast('Usuário criado');
+      setBusy(false);
+      add('users', { ...rest, email: rest.email.trim().toLowerCase(), id, color: form.color || pickColor(form.name), passwordHash, password: undefined });
+      toast(isSupabaseMode ? 'Usuário adicionado à equipe. Ele já pode entrar com o login criado no Supabase.' : 'Usuário criado');
     } else {
       const { password, ...rest } = form;
       const passwordHash = !isSupabaseMode && password ? await hashPassword(password) : undefined;
@@ -222,7 +217,7 @@ function Equipe() {
         onClose={() => setEditing(null)}
         title={isNew ? 'Novo usuário' : 'Editar usuário'}
         footer={
-          <Button disabled={busy || !form.name?.trim() || !form.email?.includes('@') || (isNew && (form.password?.length ?? 0) < 6)} onClick={save}>
+          <Button disabled={busy || !form.name?.trim() || !form.email?.includes('@') || (isNew && !isSupabaseMode && (form.password?.length ?? 0) < 6)} onClick={save}>
             Salvar
           </Button>
         }
@@ -243,7 +238,7 @@ function Equipe() {
               ))}
             </Select>
           </Field>
-          {(isNew || !isSupabaseMode) && (
+          {!isSupabaseMode && (
             <Field label={isNew ? 'Senha inicial' : 'Nova senha (opcional)'} hint="Mínimo de 6 caracteres">
               <Input type="password" autoComplete="new-password" value={form.password ?? ''} onChange={(e) => setForm({ ...form, password: e.target.value })} />
             </Field>
@@ -264,7 +259,16 @@ function Equipe() {
             </div>
           </Field>
         </div>
-        {isNew && isSupabaseMode && <p className="mt-3 text-[12px] text-ink-3">O login é criado no Supabase Auth. Se a confirmação de e-mail estiver ativa no seu projeto, o usuário precisa confirmar antes do primeiro acesso.</p>}
+        {isNew && isSupabaseMode && (
+          <div className="mt-4 rounded-lg bg-canvas p-3 text-[12.5px] text-ink-2">
+            <b>Antes de salvar, crie o login da pessoa no Supabase</b> (o cadastro aberto fica desligado por segurança):
+            <ol className="mt-1 list-decimal space-y-0.5 pl-5">
+              <li>Supabase → Authentication → Users → Add user → Create new user</li>
+              <li>Informe o mesmo e-mail daqui, uma senha inicial e marque “Auto Confirm User”</li>
+              <li>Salve aqui. No primeiro acesso, a pessoa entra com esse e-mail e senha</li>
+            </ol>
+          </div>
+        )}
       </Modal>
       <Confirm
         open={Boolean(deleting)}

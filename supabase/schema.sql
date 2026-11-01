@@ -32,14 +32,32 @@ create index if not exists crm_records_conversation_idx
 -- ---------------------------------------------------------------------
 -- Funções auxiliares (security definer evita recursão nas políticas)
 -- ---------------------------------------------------------------------
+-- O login (Supabase Auth) é vinculado ao usuário da equipe pelo ID ou pelo e-mail.
+-- Com o cadastro aberto desligado (recomendado), só o admin cria logins no painel do
+-- Supabase, então o e-mail do token é confiável. Com cadastro aberto, a confirmação de
+-- e-mail (padrão do Supabase) impede que alguém entre com o e-mail de outra pessoa.
+create or replace function public.crm_my_user_id()
+returns text
+language sql stable security definer set search_path = ''
+as $$
+  select id from public.crm_records
+  where collection = 'users'
+    and (
+      id = auth.uid()::text
+      or (
+        coalesce(auth.jwt()->>'email', '') <> ''
+        and lower(data->>'email') = lower(auth.jwt()->>'email')
+      )
+    )
+  order by (id = auth.uid()::text) desc
+  limit 1;
+$$;
+
 create or replace function public.crm_is_member()
 returns boolean
 language sql stable security definer set search_path = ''
 as $$
-  select exists (
-    select 1 from public.crm_records
-    where collection = 'users' and id = auth.uid()::text
-  );
+  select public.crm_my_user_id() is not null;
 $$;
 
 create or replace function public.crm_is_admin()
@@ -48,12 +66,14 @@ language sql stable security definer set search_path = ''
 as $$
   select exists (
     select 1 from public.crm_records
-    where collection = 'users' and id = auth.uid()::text and data->>'role' = 'admin'
+    where collection = 'users' and id = public.crm_my_user_id() and data->>'role' = 'admin'
   );
 $$;
 
 -- Funções de segurança: só a sessão logada as executa (as políticas precisam delas).
 -- search_path vazio impede que um objeto criado num schema qualquer sequestre a função.
+revoke all on function public.crm_my_user_id() from public, anon;
+grant execute on function public.crm_my_user_id() to authenticated;
 revoke all on function public.crm_is_member() from public, anon;
 revoke all on function public.crm_is_admin() from public, anon;
 grant execute on function public.crm_is_member() to authenticated;
@@ -90,7 +110,7 @@ create policy "equipe atualiza" on public.crm_records
     and (
       collection not in ('users', 'settings', 'connections')
       or public.crm_is_admin()
-      or (collection = 'users' and id = auth.uid()::text)
+      or (collection = 'users' and id = public.crm_my_user_id())
     )
   )
   with check (public.crm_is_member());
@@ -119,6 +139,14 @@ begin
      and not public.crm_is_admin()
      and (new.data->>'role') is distinct from (old.data->>'role') then
     raise exception 'Somente administradores podem alterar o perfil de acesso';
+  end if;
+  -- nem o próprio e-mail (é ele que vincula o login ao usuário da equipe)
+  if tg_op = 'UPDATE'
+     and new.collection = 'users'
+     and auth.uid() is not null
+     and not public.crm_is_admin()
+     and lower(coalesce(new.data->>'email', '')) is distinct from lower(coalesce(old.data->>'email', '')) then
+    raise exception 'Somente administradores podem alterar o e-mail de login';
   end if;
   return new;
 end;

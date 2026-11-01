@@ -62,6 +62,11 @@ create schema auth;
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('test.uid', true), '')::uuid
 $$;
+-- No Supabase o token (JWT) traz o e-mail do login; aqui ele vem de auth.users
+create table auth.users (id uuid primary key, email text not null);
+create function auth.jwt() returns jsonb language sql stable as $$
+  select coalesce((select jsonb_build_object('email', email) from auth.users where id = auth.uid()), '{}'::jsonb)
+$$;
 grant usage on schema auth to anon, authenticated;
 create publication supabase_realtime;
 SQL
@@ -208,6 +213,31 @@ select pg_temp.check(pg_temp.ok_as('authenticated', '11111111-1111-4111-8111-111
   $q$delete from public.crm_records where collection = 'connections' and id = 'conn-1'$q$),
   'admin exclui conexão');
 
+-- ---------------------------------------------------------------- login vinculado por e-mail (cadastro aberto desligado)
+-- O admin cria o login no painel do Supabase e cadastra a pessoa no CRM pelo mesmo e-mail.
+insert into auth.users (id, email) values
+  ('55555555-5555-4555-8555-555555555555', 'maria@clinica.com'),
+  ('33333333-3333-4333-8333-333333333333', 'estranho@outro.com');
+select pg_temp.check(pg_temp.ok_as('authenticated', '11111111-1111-4111-8111-111111111111',
+  $q$insert into public.crm_records (collection, id, data) values ('users', 'usr-maria', '{"name":"Maria","role":"atendente","email":"Maria@Clinica.com"}')$q$),
+  'admin cadastra usuária pelo e-mail');
+select pg_temp.check(pg_temp.scalar_as('authenticated', '55555555-5555-4555-8555-555555555555',
+  'select count(*)::text from public.crm_records')::int > 0, 'login vinculado pelo e-mail (sem diferenciar maiúsculas) acessa a equipe');
+select pg_temp.check(pg_temp.ok_as('authenticated', '55555555-5555-4555-8555-555555555555',
+  $q$update public.crm_records set data = data || '{"presence":"online"}' where collection = 'users' and id = 'usr-maria'$q$),
+  'usuária vinculada por e-mail atualiza o próprio status');
+select pg_temp.check(pg_temp.err_as('authenticated', '55555555-5555-4555-8555-555555555555',
+  $q$update public.crm_records set data = data || '{"email":"admin@clinica.com"}' where collection = 'users' and id = 'usr-maria'$q$)
+  like '%e-mail de login%', 'usuária NÃO troca o próprio e-mail');
+select pg_temp.check(pg_temp.err_as('authenticated', '55555555-5555-4555-8555-555555555555',
+  $q$update public.crm_records set data = data || '{"role":"admin"}' where collection = 'users' and id = 'usr-maria'$q$)
+  like '%perfil de acesso%', 'usuária vinculada por e-mail NÃO vira admin');
+select pg_temp.check(pg_temp.blocked_as('authenticated', '55555555-5555-4555-8555-555555555555',
+  $q$update public.crm_records set data = data || '{"presence":"x"}' where collection = 'users' and id = '22222222-2222-4222-8222-222222222222'$q$),
+  'usuária não altera o registro de outra pessoa');
+select pg_temp.check(pg_temp.scalar_as('authenticated', '33333333-3333-4333-8333-333333333333',
+  'select count(*)::text from public.crm_records')::int = 0, 'login com e-mail fora da equipe continua sem acesso');
+
 -- ---------------------------------------------------------------- papel anônimo e funções
 select pg_temp.check(pg_temp.err_as('anon', null, 'select 1 from public.crm_records') like '%permission denied%',
   'anônimo não acessa a tabela');
@@ -227,7 +257,7 @@ select pg_temp.check((select count(*) from pg_policies where schemaname = 'publi
 select pg_temp.check(exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'crm_records'),
   'a tabela está na publicação do Realtime');
 select pg_temp.check((select bool_and(position('search_path' in array_to_string(proconfig, ',')) > 0)
-  from pg_proc where pronamespace = 'public'::regnamespace and proname in ('crm_is_member', 'crm_is_admin', 'crm_touch')),
+  from pg_proc where pronamespace = 'public'::regnamespace and proname in ('crm_my_user_id', 'crm_is_member', 'crm_is_admin', 'crm_touch')),
   'funções SECURITY DEFINER têm search_path fixado');
 select pg_temp.check(true, 'o schema foi aplicado duas vezes sem erro');
 SQL
