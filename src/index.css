@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   Design tokens — LeadFlow CRM
+   A cor de marca (--brand) é trocada em tempo real em
+   Configurações → Aparência (white label). Todos os tons derivam dela.
+   ------------------------------------------------------------------ */
+:root {
+  --brand: #00a389;
+  --sidebar: #0e1f2b;
+  --sidebar-hover: #17303f;
+  --sidebar-active: #1d3b4c;
+
+  --surface: #ffffff;
+  --canvas: #f3f5f7;
+  --line: #e4e8ec;
+  --ink: #15212b;
+  --ink-2: #4f5d69;
+  --ink-3: #8592a0;
+
+  /* Chat estilo WhatsApp */
+  --chat-bg: #efeae2;
+  --bubble-in: #ffffff;
+  --bubble-out: #d9fdd3;
+  --bubble-note: #fff4cc;
+
+  /* Gráficos — paleta categórica validada (skill dataviz) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+
+  /* Status (reservado — sempre com ícone + texto) */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+}
+
+@theme inline {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-brand-50: color-mix(in oklab, var(--brand) 7%, white);
+  --color-brand-100: color-mix(in oklab, var(--brand) 14%, white);
+  --color-brand-200: color-mix(in oklab, var(--brand) 30%, white);
+  --color-brand-300: color-mix(in oklab, var(--brand) 50%, white);
+  --color-brand-400: color-mix(in oklab, var(--brand) 75%, white);
+  --color-brand-500: var(--brand);
+  --color-brand-600: color-mix(in oklab, var(--brand) 85%, black);
+  --color-brand-700: color-mix(in oklab, var(--brand) 70%, black);
+  --color-brand-800: color-mix(in oklab, var(--brand) 55%, black);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active: var(--sidebar-active);
+
+  --color-surface: var(--surface);
+  --color-canvas: var(--canvas);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+
+  --color-chat: var(--chat-bg);
+  --color-bubble-in: var(--bubble-in);
+  --color-bubble-out: var(--bubble-out);
+  --color-bubble-note: var(--bubble-note);
+
+  --color-good: var(--good);
+  --color-warning: var(--warning);
+  --color-serious: var(--serious);
+  --color-critical: var(--critical);
+
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.06), 0 1px 3px rgb(16 24 40 / 0.04);
+  --shadow-pop: 0 12px 32px -8px rgb(16 24 40 / 0.22), 0 4px 8px -4px rgb(16 24 40 / 0.08);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c5ccd3 transparent;
+}
+
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+.chat-wallpaper {
+  background-color: var(--chat-bg);
+  background-image: radial-gradient(rgb(0 0 0 / 0.045) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-in {
+  animation: fade-in 0.16s ease-out;
+}
+
+@keyframes typing {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+.typing-dot {
+  animation: typing 1.2s infinite;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
