@@ -13,7 +13,7 @@ import {
 } from '../types';
 import { type CollectionName, type DataState, demoState, emptyState } from '../data/seed';
 import { firstName, fillTemplate, nowIso, pickColor, uid } from '../lib/utils';
-import { hashPassword, verifyPassword } from '../lib/password';
+import { checkAccountPassword, hashPassword } from '../lib/password';
 import { isSupabaseMode } from '../lib/supabase';
 
 type Item<C extends CollectionName> = DataState[C][number];
@@ -115,14 +115,14 @@ export const useStore = create<Store>()(
       loginLocal: async (email, password) => {
         const u = get().users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
         if (!u) return false;
-        // contas antigas guardavam a senha em texto puro: confere e troca pelo hash no primeiro login
-        const legacy = u.passwordHash === undefined && u.password !== undefined;
-        const ok = legacy ? u.password === password : await verifyPassword(password, u.passwordHash ?? '');
-        if (!ok) return false;
-        const passwordHash = legacy ? await hashPassword(password) : u.passwordHash;
+        // contas antigas (senha em texto puro) recebem o hash no primeiro login
+        const check = await checkAccountPassword(u, password);
+        if (!check.ok) return false;
         set((s) => ({
           sessionUserId: u.id,
-          users: s.users.map((x) => (x.id === u.id ? { ...x, presence: 'online', passwordHash, password: undefined } : x)),
+          users: s.users.map((x) =>
+            x.id === u.id ? { ...x, presence: 'online', passwordHash: check.passwordHash ?? x.passwordHash, password: undefined } : x,
+          ),
         }));
         return true;
       },

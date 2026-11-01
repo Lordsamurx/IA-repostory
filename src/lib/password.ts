@@ -58,3 +58,17 @@ function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
   for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
   return diff === 0;
 }
+
+/**
+ * Confere a senha de uma conta do modo local.
+ * Conta com hash: verifica o hash. Conta antiga (senha em texto puro): aceita uma vez
+ * e devolve o hash novo para o store gravar no lugar da senha em texto puro.
+ */
+export async function checkAccountPassword(
+  account: { passwordHash?: string; password?: string },
+  password: string,
+): Promise<{ ok: boolean; passwordHash?: string }> {
+  if (account.passwordHash) return { ok: await verifyPassword(password, account.passwordHash) };
+  if (account.password && account.password === password) return { ok: true, passwordHash: await hashPassword(password) };
+  return { ok: false };
+}
