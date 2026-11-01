@@ -10,15 +10,21 @@ export default function Signup() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', company: '', email: '', password: '' });
   const [confirm, setConfirm] = useState(false);
+  const [error, setError] = useState('');
 
   // No modo Supabase o administrador é criado pelo instalador (SETUP-KIT/install.sh)
   if (isSupabaseMode) return <Navigate to="/login" replace />;
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!confirm) return setConfirm(true);
-    signupLocal(form);
-    navigate('/onboarding');
+    try {
+      await signupLocal(form);
+      navigate('/onboarding');
+    } catch (err) {
+      setConfirm(false);
+      setError(err instanceof Error ? err.message : 'Não foi possível criar a conta.');
+    }
   };
 
   return (
@@ -43,6 +49,7 @@ export default function Signup() {
             Isso substitui os dados de demonstração salvos neste navegador. Clique de novo para confirmar.
           </p>
         )}
+        {error && <p className="rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] text-[#a52828]">{error}</p>}
         <Button type="submit" size="lg" className="w-full">
           {confirm ? 'Confirmar e criar' : 'Criar conta'}
         </Button>

@@ -67,10 +67,15 @@ export default function Login() {
       // o carregamento dos dados acontece no App (onAuthStateChange)
       return;
     }
-    const ok = loginLocal(email, password);
-    setLoading(false);
-    if (ok) navigate('/');
-    else setError('E-mail ou senha incorretos.');
+    try {
+      const ok = await loginLocal(email, password);
+      setLoading(false);
+      if (ok) navigate('/');
+      else setError('E-mail ou senha incorretos.');
+    } catch (err) {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Não foi possível entrar.');
+    }
   };
 
   return (

@@ -24,6 +24,7 @@ import type {
   User,
 } from '../types';
 import { pickColor } from '../lib/utils';
+import { DEMO_PASSWORD_HASH } from '../lib/password';
 
 export interface DataState {
   settings: Settings;
@@ -176,10 +177,10 @@ export function demoState(): DataState {
   };
 
   const users: User[] = [
-    { id: 'usr-admin', name: 'Samuel Moura', email: 'admin@demo.com', password: 'demo123', role: 'admin', presence: 'online', departmentIds: ['dep-comercial', 'dep-suporte'], color: '#00a389' },
-    { id: 'usr-julia', name: 'Júlia Andrade', email: 'julia@demo.com', password: 'demo123', role: 'atendente', presence: 'online', departmentIds: ['dep-comercial'], color: '#6250d6' },
-    { id: 'usr-caio', name: 'Caio Ferreira', email: 'caio@demo.com', password: 'demo123', role: 'atendente', presence: 'ausente', departmentIds: ['dep-comercial'], color: '#eb6834' },
-    { id: 'usr-bia', name: 'Beatriz Lopes', email: 'bia@demo.com', password: 'demo123', role: 'supervisor', presence: 'offline', departmentIds: ['dep-suporte', 'dep-financeiro'], color: '#e87ba4' },
+    { id: 'usr-admin', name: 'Samuel Moura', email: 'admin@demo.com', passwordHash: DEMO_PASSWORD_HASH, role: 'admin', presence: 'online', departmentIds: ['dep-comercial', 'dep-suporte'], color: '#00a389' },
+    { id: 'usr-julia', name: 'Júlia Andrade', email: 'julia@demo.com', passwordHash: DEMO_PASSWORD_HASH, role: 'atendente', presence: 'online', departmentIds: ['dep-comercial'], color: '#6250d6' },
+    { id: 'usr-caio', name: 'Caio Ferreira', email: 'caio@demo.com', passwordHash: DEMO_PASSWORD_HASH, role: 'atendente', presence: 'ausente', departmentIds: ['dep-comercial'], color: '#eb6834' },
+    { id: 'usr-bia', name: 'Beatriz Lopes', email: 'bia@demo.com', passwordHash: DEMO_PASSWORD_HASH, role: 'supervisor', presence: 'offline', departmentIds: ['dep-suporte', 'dep-financeiro'], color: '#e87ba4' },
   ];
 
   const departments: Department[] = [

@@ -11,7 +11,9 @@ export interface User {
   presence: Presence;
   departmentIds: ID[];
   color: string;
-  /** Somente no modo local (demonstração). No modo Supabase a senha fica no Auth. */
+  /** Somente no modo local: hash PBKDF2 da senha (ver lib/password.ts). No modo Supabase a senha fica no Auth. */
+  passwordHash?: string;
+  /** Legado (versões antigas do modo local, texto puro). Migrado para passwordHash no primeiro login. */
   password?: string;
 }
 

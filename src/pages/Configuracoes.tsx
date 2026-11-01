@@ -4,6 +4,7 @@ import { useMe, useStore } from '../store/useStore';
 import { Avatar, Badge, Button, Card, Confirm, Field, Input, Modal, PageHeader, Select, Switch, TagChip, Textarea } from '../components/ui';
 import { cn, pickColor, SWATCHES, uid } from '../lib/utils';
 import { isSupabaseMode, isolatedClient } from '../lib/supabase';
+import { hashPassword } from '../lib/password';
 import { checkServerAI } from '../lib/ai';
 import { COLLECTIONS, type DataState } from '../data/seed';
 import type { CustomFieldType, Role, User, Weekday } from '../types';
@@ -163,11 +164,16 @@ function Equipe() {
         if (error || !data.user) return toast(`Não foi possível criar o login: ${error?.message ?? 'erro desconhecido'}`, 'error');
         id = data.user.id;
       }
-      add('users', { ...form, id, color: form.color || pickColor(form.name), password: isSupabaseMode ? undefined : form.password });
+      // no modo local a senha entra na conta só como hash; no Supabase ela fica no Auth
+      const passwordHash = !isSupabaseMode && form.password ? await hashPassword(form.password) : undefined;
+      const { password: _typed, ...rest } = form;
+      add('users', { ...rest, id, color: form.color || pickColor(form.name), passwordHash, password: undefined });
       toast('Usuário criado');
     } else {
       const { password, ...rest } = form;
-      update('users', form.id, isSupabaseMode || !password ? rest : { ...rest, password });
+      const passwordHash = !isSupabaseMode && password ? await hashPassword(password) : undefined;
+      // `password: undefined` remove a versão antiga em texto puro, se existir
+      update('users', form.id, { ...rest, password: undefined, ...(passwordHash ? { passwordHash } : {}) });
       toast('Usuário atualizado');
     }
     setEditing(null);
@@ -571,7 +577,7 @@ function Dados() {
   const exportJson = () => {
     const s = useStore.getState();
     const data: Partial<DataState> = { settings: s.settings };
-    for (const c of COLLECTIONS) (data as Record<string, unknown>)[c] = c === 'users' ? s.users.map(({ password: _p, ...u }) => u) : s[c];
+    for (const c of COLLECTIONS) (data as Record<string, unknown>)[c] = c === 'users' ? s.users.map(({ password: _p, passwordHash: _h, ...u }) => u) : s[c];
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

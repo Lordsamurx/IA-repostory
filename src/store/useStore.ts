@@ -13,6 +13,7 @@ import {
 } from '../types';
 import { type CollectionName, type DataState, demoState, emptyState } from '../data/seed';
 import { firstName, fillTemplate, nowIso, pickColor, uid } from '../lib/utils';
+import { hashPassword, verifyPassword } from '../lib/password';
 import { isSupabaseMode } from '../lib/supabase';
 
 type Item<C extends CollectionName> = DataState[C][number];
@@ -43,10 +44,10 @@ interface Actions {
   dismissToast: (id: string) => void;
 
   // sessão (modo local)
-  loginLocal: (email: string, password: string) => boolean;
+  loginLocal: (email: string, password: string) => Promise<boolean>;
   setSession: (userId: string | null) => void;
   logout: () => void;
-  signupLocal: (p: { name: string; email: string; password: string; company: string }) => void;
+  signupLocal: (p: { name: string; email: string; password: string; company: string }) => Promise<void>;
   resetDemo: () => void;
 
   // contatos
@@ -111,12 +112,17 @@ export const useStore = create<Store>()(
       },
       dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
-      loginLocal: (email, password) => {
+      loginLocal: async (email, password) => {
         const u = get().users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
-        if (!u || (u.password ?? '') !== password) return false;
+        if (!u) return false;
+        // contas antigas guardavam a senha em texto puro: confere e troca pelo hash no primeiro login
+        const legacy = u.passwordHash === undefined && u.password !== undefined;
+        const ok = legacy ? u.password === password : await verifyPassword(password, u.passwordHash ?? '');
+        if (!ok) return false;
+        const passwordHash = legacy ? await hashPassword(password) : u.passwordHash;
         set((s) => ({
           sessionUserId: u.id,
-          users: s.users.map((x) => (x.id === u.id ? { ...x, presence: 'online' } : x)),
+          users: s.users.map((x) => (x.id === u.id ? { ...x, presence: 'online', passwordHash, password: undefined } : x)),
         }));
         return true;
       },
@@ -128,12 +134,12 @@ export const useStore = create<Store>()(
           users: s.users.map((x) => (x.id === id ? { ...x, presence: 'offline' } : x)),
         }));
       },
-      signupLocal: ({ name, email, password, company }) => {
+      signupLocal: async ({ name, email, password, company }) => {
         const admin: User = {
           id: uid('usr-'),
           name,
           email,
-          password,
+          passwordHash: await hashPassword(password),
           role: 'admin',
           presence: 'online',
           departmentIds: ['dep-comercial'],
