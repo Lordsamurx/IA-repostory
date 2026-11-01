@@ -1,21 +1,48 @@
 # LeadFlow CRM — produção (VPS)
 # Sobe com: docker compose up -d --build
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '3'
+
 services:
   app:
+    <<: *hardening
     build:
       context: .
       args:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
     env_file: .env
-    restart: unless-stopped
+    environment:
+      # o Caddy é o único proxy na frente do app: o IP do cliente vem do X-Forwarded-For
+      TRUST_PROXY: '1'
     expose:
       - '8787'
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 512m
+    pids_limit: 256
 
   # Caddy emite e renova o certificado HTTPS automaticamente para o seu domínio
   caddy:
+    <<: *hardening
     image: caddy:2-alpine
-    restart: unless-stopped
+    # só a porta 80/443 precisa de privilégio; todo o resto é descartado
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 256m
     ports:
       - '80:80'
       - '443:443'

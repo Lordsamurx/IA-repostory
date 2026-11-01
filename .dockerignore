@@ -1,5 +1,10 @@
 node_modules
-server/node_modules
 dist
+dist-demo
 .env
 .git
+supabase
+docs
+test
+server/node_modules
+server/test
