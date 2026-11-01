@@ -6,7 +6,7 @@
  * - Mudanças locais: são comparadas por referência e enviadas em lote (upsert/delete).
  * - Mudanças de outros atendentes: chegam via Realtime e são aplicadas na store.
  */
-import type { RealtimeChannel } from '@supabase/supabase-js';
+import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { useStore } from '../store/useStore';
 import { COLLECTIONS, type CollectionName, type DataState, DEFAULT_SETTINGS, emptyState } from '../data/seed';
@@ -16,6 +16,15 @@ type Row = { collection: string; id: string; data: unknown };
 type WithId = { id: string };
 
 const SETTINGS_KEY = { collection: 'settings', id: 'main' };
+
+/** Cliente usado na sincronização: o do navegador (login da equipe) ou o do worker (service_role). */
+let db: SupabaseClient | null = supabase;
+let onError = (text: string) => useStore.getState().toast(text, 'error');
+
+export function useSyncClient(client: SupabaseClient, errorHandler?: (text: string) => void) {
+  db = client;
+  if (errorHandler) onError = errorHandler;
+}
 
 let synced: Map<string, Map<string, unknown>> = new Map();
 let syncedSettings: Settings | null = null;
@@ -28,17 +37,20 @@ function snapshot(state: DataState) {
   syncedSettings = state.settings;
 }
 
-export async function loadRemote(authUser: { id: string; email?: string }) {
-  if (!supabase) return;
+async function fetchRows() {
   const rows: Row[] = [];
-  // paginação: o PostgREST devolve no máximo 1000 linhas por chamada
+  // paginação estável (ordenada): o PostgREST devolve no máximo 1000 linhas por chamada
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from('crm_records').select('collection,id,data').range(from, from + 999);
+    const { data, error } = await db!.from('crm_records').select('collection,id,data').order('collection').order('id').range(from, from + 999);
     if (error) throw error;
     rows.push(...(data as Row[]));
     if (!data || data.length < 1000) break;
   }
+  return rows;
+}
 
+async function fetchAll() {
+  const rows = await fetchRows();
   const base = emptyState();
   const state: DataState = { ...base, settings: { ...DEFAULT_SETTINGS } };
   let hasSettings = false;
@@ -56,17 +68,14 @@ export async function loadRemote(authUser: { id: string; email?: string }) {
     // Instalação nova: mantém as etiquetas/funil padrão do emptyState
     if (grouped.has(c) || hasSettings) (state[c] as unknown[]) = grouped.get(c) ?? [];
   }
+  return { state, hasSettings, grouped };
+}
 
-  // O usuário precisa fazer parte da equipe (criado pelo instalador ou por um administrador)
-  const me = state.users.find((u) => u.id === authUser.id || u.email.toLowerCase() === authUser.email?.toLowerCase());
-  if (!me) throw new Error('Seu login não está vinculado a nenhuma equipe. Peça ao administrador para adicionar você em Configurações → Equipe.');
-
-  // marca como "já sincronizado" só o que veio do banco, para que o
-  // usuário criado agora e os padrões de instalação nova sejam enviados
+/** Coloca na store o que veio do banco e marca como "já sincronizado" só essas linhas. */
+function hydrate(state: DataState, hasSettings: boolean, grouped: Map<string, unknown[]>, session: { sessionUserId: string | null }) {
   synced = new Map(COLLECTIONS.map((c) => [c, new Map(((grouped.get(c) ?? []) as WithId[]).map((x) => [x.id, x]))]));
   syncedSettings = hasSettings ? state.settings : null;
-
-  useStore.setState({ ...state, sessionUserId: me.id, hydrated: true });
+  useStore.setState({ ...state, ...session, hydrated: true });
   // Recalcula o snapshot com as referências reais da store para as linhas vindas do banco
   const st = useStore.getState();
   for (const c of COLLECTIONS) {
@@ -74,11 +83,43 @@ export async function loadRemote(authUser: { id: string; email?: string }) {
     for (const item of st[c] as WithId[]) if (map.has(item.id)) map.set(item.id, item);
   }
   if (hasSettings) syncedSettings = st.settings;
+}
+
+/**
+ * Worker do servidor: carrega tudo com a service_role. Não grava os padrões de
+ * instalação nova (quem conclui a instalação é o administrador no navegador).
+ */
+export async function loadForServer() {
+  const { state, hasSettings, grouped } = await fetchAll();
+  hydrate(state, hasSettings, grouped, { sessionUserId: null });
+  if (!hasSettings) {
+    // nada a enviar: tudo o que está na store conta como sincronizado
+    snapshot(useStore.getState());
+    syncedSettings = useStore.getState().settings;
+  }
+}
+
+/** Depois de uma queda do Realtime: aplica o estado atual do banco (sem desfazer mudanças locais pendentes). */
+export async function reconcileRemote() {
+  for (const row of await fetchRows()) applyRemote(row, false);
+}
+
+export async function loadRemote(authUser: { id: string; email?: string }) {
+  if (!db) return;
+  const { state, hasSettings, grouped } = await fetchAll();
+
+  // O usuário precisa fazer parte da equipe (criado pelo instalador ou por um administrador)
+  const me = state.users.find((u) => u.id === authUser.id || u.email.toLowerCase() === authUser.email?.toLowerCase());
+  if (!me) throw new Error('Seu login não está vinculado a nenhuma equipe. Peça ao administrador para adicionar você em Configurações → Equipe.');
+
+  // marca como "já sincronizado" só o que veio do banco, para que o
+  // usuário criado agora e os padrões de instalação nova sejam enviados
+  hydrate(state, hasSettings, grouped, { sessionUserId: me.id });
   await flush();
 }
 
-async function flush() {
-  if (!supabase) return;
+export async function flush() {
+  if (!db) return;
   const st = useStore.getState();
   const upserts: Row[] = [];
   const deletes: { collection: string; id: string }[] = [];
@@ -99,13 +140,13 @@ async function flush() {
   }
 
   if (upserts.length) {
-    const { error } = await supabase.from('crm_records').upsert(upserts.map(stripSecrets));
-    if (error) useStore.getState().toast(`Erro ao salvar: ${error.message}`, 'error');
+    const { error } = await db.from('crm_records').upsert(upserts.map(stripSecrets));
+    if (error) onError(`Erro ao salvar: ${error.message}`);
   }
   for (const c of new Set(deletes.map((d) => d.collection))) {
     const ids = deletes.filter((d) => d.collection === c).map((d) => d.id);
-    const { error } = await supabase.from('crm_records').delete().eq('collection', c).in('id', ids);
-    if (error) useStore.getState().toast(`Erro ao excluir: ${error.message}`, 'error');
+    const { error } = await db.from('crm_records').delete().eq('collection', c).in('id', ids);
+    if (error) onError(`Erro ao excluir: ${error.message}`);
   }
 }
 
@@ -128,6 +169,10 @@ function applyRemote(row: Row, deleted: boolean) {
   if (!COLLECTIONS.includes(c)) return;
   const map = synced.get(c) ?? new Map();
   const list = useStore.getState()[c] as WithId[];
+  // Mudança local ainda não enviada: o próximo flush grava a versão local (última escrita vence).
+  // Sem isso, o eco de uma gravação anterior apagaria a mudança mais nova.
+  const local = list.find((x) => x.id === row.id);
+  if (local && map.has(row.id) && map.get(row.id) !== local) return;
   if (deleted) {
     map.delete(row.id);
     useStore.setState({ [c]: list.filter((x) => x.id !== row.id) } as Partial<DataState>);
@@ -142,13 +187,13 @@ function applyRemote(row: Row, deleted: boolean) {
   } as Partial<DataState>);
 }
 
-export function startSync() {
-  if (!supabase || unsubscribeStore) return;
+export function startSync(onStatus?: (status: string) => void) {
+  if (!db || unsubscribeStore) return;
   unsubscribeStore = useStore.subscribe(() => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => void flush(), 350);
   });
-  channel = supabase
+  channel = db
     .channel('crm_records')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_records' }, (payload) => {
       if (payload.eventType === 'DELETE') {
@@ -158,13 +203,13 @@ export function startSync() {
         applyRemote(payload.new as Row, false);
       }
     })
-    .subscribe();
+    .subscribe((status) => onStatus?.(status));
 }
 
 export function stopSync() {
   unsubscribeStore?.();
   unsubscribeStore = null;
-  if (channel && supabase) void supabase.removeChannel(channel);
+  if (channel && db) void db.removeChannel(channel);
   channel = null;
   snapshot(emptyState());
 }

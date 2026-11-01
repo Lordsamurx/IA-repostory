@@ -173,3 +173,97 @@ export const validBody = (extra = {}) => ({
   history: [{ role: 'user', content: 'Oi, quanto custa o clareamento?' }],
   ...extra,
 });
+
+export const ADMIN_TOKEN = 'token-admin';
+export const ADMIN_ID = 'usr-admin';
+export const adminAuth = { authorization: `Bearer ${ADMIN_TOKEN}` };
+export const WEBHOOK_TOKEN = 'segredo-do-webhook-de-teste';
+
+/** Supabase falso com três perfis: admin, membro (atendente) e estranho. */
+export async function fakeSupabaseRoles() {
+  const counts = { auth: 0, rest: 0 };
+  const srv = await listen((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    const auth = req.headers.authorization ?? '';
+    if (url.pathname === '/auth/v1/user') {
+      counts.auth++;
+      if (auth === `Bearer ${ADMIN_TOKEN}`) return json(res, 200, { id: ADMIN_ID, email: 'admin@teste.com' });
+      if (auth === `Bearer ${MEMBER_TOKEN}`) return json(res, 200, { id: MEMBER_ID, email: 'membro@teste.com' });
+      if (auth === `Bearer ${OUTSIDER_TOKEN}`) return json(res, 200, { id: OUTSIDER_ID, email: 'fora@teste.com' });
+      return json(res, 401, { message: 'invalid JWT' });
+    }
+    if (url.pathname === '/rest/v1/rpc/crm_is_member' && req.method === 'POST') {
+      counts.rest++;
+      return json(res, 200, auth === `Bearer ${MEMBER_TOKEN}` || auth === `Bearer ${ADMIN_TOKEN}`);
+    }
+    if (url.pathname === '/rest/v1/rpc/crm_is_admin' && req.method === 'POST') {
+      counts.rest++;
+      return json(res, 200, auth === `Bearer ${ADMIN_TOKEN}`);
+    }
+    json(res, 404, { message: 'rota não existe no fake' });
+  });
+  return { ...srv, counts };
+}
+
+/**
+ * Evolution API falsa. `state` controla /connectionState; `exists` simula instância já criada.
+ * Guarda as mensagens enviadas em `sent`.
+ */
+export async function fakeEvolution({ apiKey = 'evo-teste', state = 'close', exists = false } = {}) {
+  const ctl = { state, exists, sent: [], failSend: false };
+  const srv = await listen((req, res, body) => {
+    const url = new URL(req.url, 'http://x');
+    if (req.headers.apikey !== apiKey) return json(res, 401, { message: 'Unauthorized' });
+    const p = url.pathname;
+    if (p === '/instance/create' && req.method === 'POST') {
+      if (ctl.exists) return json(res, 403, { status: 403, error: 'Forbidden', response: { message: ['This name is already in use.'] } });
+      ctl.exists = true;
+      return json(res, 201, { instance: { instanceName: body.instanceName, status: 'connecting' }, hash: 'h', qrcode: { code: '2@abc', base64: 'data:image/png;base64,QRCRIADO', count: 1 } });
+    }
+    if (p.startsWith('/webhook/set/') && req.method === 'POST') return json(res, 201, { webhook: body.webhook });
+    if (p.startsWith('/instance/connectionState/')) return json(res, 200, { instance: { instanceName: p.split('/').pop(), state: ctl.state } });
+    if (p.startsWith('/instance/connect/')) return json(res, 200, { pairingCode: null, code: '2@novo', base64: 'data:image/png;base64,QRNOVO', count: 2 });
+    if (p.startsWith('/instance/logout/') && req.method === 'DELETE') return json(res, 200, { status: 'SUCCESS' });
+    if (p.startsWith('/message/sendText/') && req.method === 'POST') {
+      if (ctl.failSend) return json(res, 400, { status: 400, response: { message: [{ exists: false }] } });
+      ctl.sent.push({ instance: p.split('/').pop(), ...body });
+      return json(res, 201, { key: { remoteJid: `${body.number}@s.whatsapp.net`, fromMe: true, id: `WA-${ctl.sent.length}` }, status: 'PENDING' });
+    }
+    json(res, 404, { message: 'rota não existe no fake' });
+  });
+  return Object.assign(srv, { ctl, apiKey });
+}
+
+/**
+ * PostgREST falso em memória para crm_records (select paginado, upsert e delete),
+ * usado com a chave service_role de teste pelo worker.
+ */
+export async function fakePostgrest(seed = [], serviceKey = 'service-role-teste') {
+  const rows = new Map(seed.map((r) => [`${r.collection}/${r.id}`, structuredClone(r)]));
+  const srv = await listen((req, res, body) => {
+    const url = new URL(req.url, 'http://x');
+    if (req.headers.apikey !== serviceKey) return json(res, 401, { message: 'chave inválida' });
+    if (url.pathname !== '/rest/v1/crm_records') return json(res, 404, { message: 'rota não existe no fake' });
+    if (req.method === 'GET') {
+      const all = [...rows.values()].sort((a, b) => (a.collection + a.id).localeCompare(b.collection + b.id));
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      const limit = Number(url.searchParams.get('limit') ?? 1000);
+      return json(res, 200, all.slice(offset, offset + limit));
+    }
+    if (req.method === 'POST') {
+      for (const r of Array.isArray(body) ? body : [body]) rows.set(`${r.collection}/${r.id}`, structuredClone(r));
+      res.writeHead(201);
+      return res.end();
+    }
+    if (req.method === 'DELETE') {
+      const c = url.searchParams.get('collection')?.replace(/^eq\./, '');
+      const ids = (url.searchParams.get('id') ?? '').replace(/^in\.\(|\)$/g, '').split(',').map((s) => s.replace(/^"|"$/g, ''));
+      for (const id of ids) rows.delete(`${c}/${id}`);
+      res.writeHead(204);
+      return res.end();
+    }
+    json(res, 405, { message: 'método não suportado' });
+  });
+  const of = (collection) => [...rows.values()].filter((r) => r.collection === collection).map((r) => r.data);
+  return Object.assign(srv, { rows, of, serviceKey });
+}

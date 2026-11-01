@@ -72,16 +72,29 @@ Abra `https://SEU-SUBDOMINIO` com o **console do navegador aberto** (F12 → Con
 | 4.8 | Teste de invasão: tentar criar conta pelo Supabase com um e-mail qualquer (ex.: pela API `/auth/v1/signup`) | Recusado: “Signups not allowed” |
 | 4.9 | Supabase → Authentication → Users → criar um login com e-mail que **não** está na equipe e entrar no CRM com ele | Mensagem “Seu login não está vinculado a nenhuma equipe” e volta para o login |
 
-## Fase 5 — WhatsApp (quando o gateway estiver integrado)
+## Fase 5 — WhatsApp real e automação 24 h
 
-> Nesta versão a conexão é simulada (veja `docs/WHATSAPP.md`). Quando o gateway real for ligado, faça:
+> Pré-requisito: `sudo bash SETUP-KIT/whatsapp.sh` concluído (service_role + Evolution). Use **chip de teste**, nunca o número do negócio. Esta fase é também a validação do formato da Evolution: o código seguiu a documentação v2 e um simulador, e aqui ele é conferido de verdade. Anote o que falhar com o trecho de `docker compose logs app`.
 
 | # | O que fazer | Resultado esperado |
 |---|---|---|
-| 5.1 | Conexões → Conectar novo WhatsApp → QR Code, ler com o celular **de teste** | Status “Conectado” |
-| 5.2 | De outro número, mandar “oi” | Aparece no Inbox em segundos |
-| 5.3 | Responder pelo CRM | Chega no celular |
-| 5.4 | Mandar um áudio e uma foto do celular | Aparecem no chat |
+| 5.1 | `sudo bash SETUP-KIT/verificar.sh` | PASS em “automação 24 h rodando no servidor”, “gateway de WhatsApp configurado”, “webhook recusa chamada sem segredo” e “conectar WhatsApp exige login de admin” |
+| 5.2 | `docker compose logs app \| grep -i worker` | Linha “automação no servidor ligada: N contatos…” e “realtime: SUBSCRIBED” |
+| 5.3 | Configurações → Status da instalação | “Automações rodando 24 h no servidor” e “Gateway de WhatsApp” marcados |
+| 5.4 | Conexões → Conectar novo WhatsApp → QR Code | Aparece o **QR real** (não o ilustrativo) em poucos segundos. Se der erro, a mensagem diz qual variável conferir |
+| 5.5 | Ler o QR com o celular de teste | A janela fecha sozinha e a conexão fica “Conectado”, com o número preenchido |
+| 5.6 | No painel da Evolution (ou `GET /webhook/find/leadflow-...`) | Webhook apontando para `/api/whatsapp/webhook`, eventos MESSAGES_UPSERT, MESSAGES_UPDATE e CONNECTION_UPDATE |
+| 5.7 | De **outro** celular, mandar “oi” para o número de teste | Em segundos: contato novo, conversa no Inbox, negócio na 1ª etapa do funil e aviso de “Novo lead” |
+| 5.8 | Com chatbot ativo na conexão: responder “1” | O menu e a resposta da opção chegam no celular |
+| 5.9 | Com agente de IA na conexão: perguntar algo da base de conhecimento | A IA responde no celular |
+| 5.10 | Responder manualmente pelo Inbox | Chega no celular; no CRM aparece ✓, depois ✓✓ e ✓✓ azul quando o outro celular lê |
+| 5.11 | **Fechar todos os navegadores**, mandar outra mensagem e esperar | O chatbot/IA responde mesmo assim (automação no servidor) |
+| 5.12 | Criar um follow-up de 2 minutos, deixar uma conversa sem resposta e fechar o navegador | Depois de 2 minutos a mensagem de follow-up chega no celular |
+| 5.13 | Mandar do celular de teste (fora do CRM) uma mensagem para o lead | Aparece no histórico do CRM, sem disparar o chatbot |
+| 5.14 | Mandar uma foto e um áudio do outro celular | Aparecem como “📷 Imagem” e “🎤 Áudio” (o arquivo em si ainda não é baixado) |
+| 5.15 | Conexões → Desconectar | No celular, o aparelho some de “Aparelhos conectados”; responder pelo CRM mostra “não enviada” |
+| 5.16 | Inbox → Simular | Cria o lead de teste numa conexão **simulada**; nada é enviado para o WhatsApp real |
+| 5.17 | `docker compose restart app` e mandar outra mensagem | Volta em segundos e responde normalmente |
 
 ## Fase 6 — Resiliência e manutenção
 

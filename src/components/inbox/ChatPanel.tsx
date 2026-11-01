@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRightLeft,
   Bot,
+  AlertCircle,
   Check,
   CheckCheck,
   CheckCircle2,
@@ -709,7 +710,13 @@ function waFormat(text: string) {
   );
 }
 
-function Ticks({ status }: { status: Message['status'] }) {
+function Ticks({ status, failed }: { status: Message['status']; failed?: string }) {
+  if (failed)
+    return (
+      <span title={failed} className="flex items-center gap-0.5 text-critical">
+        <AlertCircle className="h-3.5 w-3.5" /> não enviada
+      </span>
+    );
   if (status === 'sent') return <Check className="h-3.5 w-3.5 text-ink-3" />;
   return <CheckCheck className={cn('h-3.5 w-3.5', status === 'read' ? 'text-[#34b7f1]' : 'text-ink-3')} />;
 }
@@ -830,7 +837,7 @@ function Bubble({
 
         <span className="float-right mt-1 ml-2 flex translate-y-0.5 items-center gap-1 text-[10.5px] text-ink-3">
           {timeHM(m.createdAt)}
-          {out && !isNote && <Ticks status={m.status} />}
+          {out && !isNote && <Ticks status={m.status} failed={m.delivery === 'failed' ? (m.deliveryError ?? 'Falha no envio') : undefined} />}
         </span>
       </div>
     </div>

@@ -1,9 +1,10 @@
 /**
  * Disparos (envio em massa) com intervalo entre mensagens para reduzir risco de bloqueio.
- * O envio roda enquanto o CRM estiver aberto no navegador de um administrador.
+ * O envio roda no servidor (worker) ou, sem ele, no navegador de um administrador.
  */
 import { useStore } from '../store/useStore';
 import type { Broadcast, Contact, Conversation } from '../types';
+import { host } from './host';
 import { nowIso, uid } from './utils';
 
 const running = new Set<string>();
@@ -84,7 +85,7 @@ export function pauseBroadcast(id: string) {
 export function tickBroadcasts() {
   const st = useStore.getState();
   const me = st.users.find((u) => u.id === st.sessionUserId);
-  if (!me || me.role !== 'admin') return;
+  if (!host.server && (!me || me.role !== 'admin')) return;
   for (const b of st.broadcasts) {
     if (b.status === 'enviando' && !running.has(b.id)) startBroadcast(b.id);
     if (b.status === 'agendado' && b.scheduledAt && new Date(b.scheduledAt) <= new Date()) startBroadcast(b.id);
@@ -101,9 +102,9 @@ export function tickScheduled() {
       st.update('scheduled', m.id, { status: 'cancelada' });
       continue;
     }
-    // evita envio duplicado entre atendentes: só quem agendou (ou um admin) envia
+    // evita envio duplicado entre atendentes: só quem agendou (ou um admin) envia; o servidor envia todas
     const me = st.users.find((u) => u.id === st.sessionUserId);
-    if (m.createdBy && m.createdBy !== me?.id && me?.role !== 'admin') continue;
+    if (!host.server && m.createdBy && m.createdBy !== me?.id && me?.role !== 'admin') continue;
     st.update('scheduled', m.id, { status: 'enviada' });
     useStore.getState().sendMessage(m.conversationId, m.body, { author: m.createdBy ?? 'system' });
   }

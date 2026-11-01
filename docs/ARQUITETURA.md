@@ -21,17 +21,19 @@
  (atendentes) ──────┼──►  └─► app :8787  (Node, server/index.mjs)                 │
    │                │          ├─ serve a interface (dist/)                       │
    │                │          ├─ GET  /api/health                                │
-   │                │          └─ POST /api/ai/reply ──► Anthropic / OpenAI       │
-   │                └─────────────────────────────────────────────────────────────┘
-   │  supabase-js (Auth + REST + Realtime)
-   └──────────────────────────► Supabase
+   │                │          ├─ POST /api/ai/reply ──► Anthropic / OpenAI       │
+   │                │          ├─ /api/whatsapp/* (QR, webhook) ◄─► Evolution API │
+   │                │          └─ worker de automação (service_role) ──┐          │
+   │                └──────────────────────────────────────────────────┼──────────┘
+   │  supabase-js (Auth + REST + Realtime)                             │
+   └──────────────────────────► Supabase ◄─────────────────────────────┘
                                  ├─ Auth (login da equipe)
                                  ├─ Postgres: crm_records (RLS)
                                  └─ Realtime (mudanças em tempo real)
 ```
 
 - **Interface:** React 19, Vite, TypeScript, Tailwind v4, Zustand, Recharts. Toda a regra de negócio vive em `src/store` e `src/lib`.
-- **Servidor:** Node puro, com o SDK da Anthropic como única dependência. Guarda a chave de IA, limita as requisições e valida o token do Supabase.
+- **Servidor:** Node puro, com o SDK da Anthropic como única dependência. Guarda a chave de IA, limita as requisições e valida o token do Supabase. Com `SUPABASE_SERVICE_ROLE_KEY`, carrega o **worker de automação** (`src/worker`, empacotado pelo Vite em `server/worker/automation.mjs`), que roda as mesmas regras de `src/store` e `src/lib` sem tela, 24 h. Detalhes em [WHATSAPP.md](WHATSAPP.md).
 - **Banco:** uma tabela `crm_records (collection, id, data jsonb)`.
 
 ## Modelo de dados
@@ -50,14 +52,15 @@ Coleções (cada item é um JSON tipado em `src/types.ts`):
 
 **Por que JSONB genérico, e não uma tabela por entidade?** Para colocar o sistema no ar rápido e permitir que quem instala evolua o modelo sem escrever migrações. O custo é que relatórios em SQL ficam menos diretos.
 
-**Quando revisitar:** acima de cerca de 100 mil mensagens, ou quando houver integração server-side com WhatsApp. Nesse ponto vale mover `messages` e `conversations` para tabelas próprias com índices. O índice parcial `crm_records_conversation_idx` já ajuda nas consultas de mensagens.
+**Quando revisitar:** acima de cerca de 100 mil mensagens (o worker mantém tudo em memória). Nesse ponto vale mover `messages` e `conversations` para tabelas próprias com índices. O índice parcial `crm_records_conversation_idx` já ajuda nas consultas de mensagens.
 
 ## Fluxo de dados
 
 1. **Login:** o Supabase Auth valida o usuário. O `sync.loadRemote()` carrega tudo e confere se o usuário faz parte da equipe.
 2. **Edição local:** as ações da store alteram o estado imediatamente (interface otimista). O `sync.flush()` compara referências e envia upserts e deletes em lote a cada 350 ms.
-3. **Outros atendentes:** o Realtime entrega INSERT, UPDATE e DELETE, e `applyRemote()` aplica a mudança sem gerar eco.
-4. **Modo local** (sem variáveis do Supabase): a mesma store é persistida no `localStorage`.
+3. **Outros atendentes:** o Realtime entrega INSERT, UPDATE e DELETE, e `applyRemote()` aplica a mudança sem gerar eco. Se a linha tem uma mudança local ainda não enviada, a versão remota é ignorada e o próximo flush grava a local (última escrita vence). Isso impede que o eco de uma gravação anterior apague uma mudança mais nova.
+4. **Worker do servidor:** faz o mesmo ciclo com a `service_role` (`loadForServer`, `flush`, Realtime). Quando o Realtime volta de uma queda, ele busca o estado atual do banco (`reconcileRemote`).
+5. **Modo local** (sem variáveis do Supabase): a mesma store é persistida no `localStorage`.
 
 ## Automação (ordem de prioridade)
 
@@ -67,8 +70,11 @@ mensagem recebida
    ├─ IA ligada na conversa?   → runAgent(): transfere (palavra-chave ou limite de respostas)
    │                                        ou responde (servidor de IA → motor local)
    └─ senão                    → fica na fila do departamento
-a cada 15 s (no navegador de um admin): follow-ups vencidos, disparos agendados, mensagens agendadas
+a cada 15 s: follow-ups vencidos, disparos agendados, mensagens agendadas
+mensagem de saída numa conexão real → caixa de saída do worker → Evolution (sendText)
 ```
+
+Onde roda: no **worker do servidor** quando `/api/health` diz `"automation": true`; senão, no navegador de um administrador logado (o mesmo código, decidido por `src/lib/host.ts`).
 
 ## Segurança
 
@@ -79,7 +85,7 @@ a cada 15 s (no navegador de um admin): follow-ups vencidos, disparos agendados,
 - As funções `SECURITY DEFINER` têm `search_path` vazio e não são executáveis pelo papel anônimo. O papel `anon` não tem acesso à tabela.
 - `supabase/test-rls.sh` (`npm run test:rls`) sobe um PostgreSQL 16 temporário, aplica o schema duas vezes e confere 37 permissões de estranho, atendente, admin, anônimo e login vinculado por e-mail.
 - `SETUP-KIT/verificar.sh` roda **na VPS** depois da instalação e confere DNS, certificado, cabeçalhos, Supabase (RLS e cadastro aberto), containers e portas. O passo a passo completo de homologação está em [ROTEIRO-TESTE-VPS.md](ROTEIRO-TESTE-VPS.md).
-- A chave `service_role` é usada só pelo instalador e não fica salva.
+- A chave `service_role` fica no `.env` (permissão 600) **somente** se a automação 24 h for ligada. Só o worker do servidor a usa, e ela não tem prefixo `VITE_`, então nunca entra no build da interface. Quem tem acesso root à VPS tem acesso total ao banco: proteja o acesso SSH. Sem a automação 24 h, a chave é usada só pelo instalador.
 
 ### Servidor (`server/index.mjs`)
 
@@ -92,6 +98,8 @@ a cada 15 s (no navegador de um admin): follow-ups vencidos, disparos agendados,
   - Erros do provedor viram mensagens genéricas; detalhes ficam só no log do servidor.
   - Sem o Supabase, só aceita chamadas do próprio computador (desenvolvimento).
 - **Limite de uso:** 60 requisições por minuto por IP, contadas antes da autenticação. Atrás do Caddy, `TRUST_PROXY=1` faz o servidor ler o IP real do `X-Forwarded-For`, que o Caddy acrescenta no fim; sem isso, todos os usuários dividiriam um único limite. Só ligue `TRUST_PROXY` se houver exatamente um proxy confiável na frente.
+- **`/api/whatsapp/webhook`:** só aceita chamadas com o segredo `WHATSAPP_WEBHOOK_TOKEN` (cabeçalho `x-webhook-token` ou `?token=`), comparado em tempo constante. Corpo de até 1 MB. Eventos de instâncias que não pertencem a este CRM são ignorados. Sem o segredo configurado, a rota responde 503.
+- **`/api/whatsapp/connect|status|disconnect`:** só **administradores** (`crm_is_admin`, a mesma função da RLS), com limite de 120 requisições por minuto por IP. O nome da instância é derivado do ID da conexão validado (`[A-Za-z0-9_-]`). Erros do gateway viram mensagens genéricas, sem a chave nem a resposta interna.
 - **Prompt de sistema:** mensagens do cliente, nome, histórico, base de conhecimento e catálogo são tratados como dados, dentro de tags próprias. O agente não revela as instruções internas e respeita o desconto máximo, mesmo que o cliente diga que outra pessoa aprovou.
 - A chave de IA fica só no servidor e nunca aparece nas respostas.
 
@@ -118,13 +126,15 @@ a cada 15 s (no navegador de um admin): follow-ups vencidos, disparos agendados,
 
 - Uma VPS KVM 2 aguenta com folga uma equipe de 5 a 20 atendentes. O servidor quase não guarda estado.
 - O Supabase cuida de backup e disponibilidade do banco. O Caddy renova o certificado sozinho.
-- **Ponto fraco conhecido:** follow-ups e disparos dependem de um navegador de administrador aberto. O próximo passo é mover esse agendador para o `server/`, usando a `service_role` em um processo separado.
+- Com o worker ligado, automações não dependem de navegador aberto. O worker roda no mesmo processo do app: se o app reinicia, mensagens de saída com mais de 10 minutos não são reenviadas (evita respostas atrasadas).
+- **Uma réplica só:** o worker não tem trava distribuída. Rode um único container `app` por instalação.
 
 ## Decisões e trade-offs
 
 | Decisão | Ganho | Custo |
 |---|---|---|
-| Regra de negócio no cliente | Desenvolvimento rápido, funciona offline (modo local) | Automação depende de um cliente aberto |
+| Regra de negócio em `src/` reaproveitada no servidor (worker) | Uma só implementação para navegador, modo local e servidor | Worker carrega todo o banco em memória; uma réplica só |
+| Caixa de saída pelo banco (worker envia) | Mensagens da equipe e das automações seguem o mesmo caminho, com status e falha visíveis | ~1 s a mais até o envio (flush + Realtime) |
 | JSONB genérico | Zero migrações, sincronização simples | Relatórios em SQL menos diretos |
 | Caddy em vez de Nginx + Certbot | HTTPS sem configuração | Um container a mais |
 | Motor local de IA como fallback | O CRM funciona sem chave e sem custo | Respostas menos naturais |

@@ -89,7 +89,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (sessionUserId && hydrated) startAutomation();
+    if (sessionUserId && hydrated) void startAutomation();
   }, [sessionUserId, hydrated]);
 
   if (booting) return <FullLoader />;

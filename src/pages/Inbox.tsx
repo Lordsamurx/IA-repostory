@@ -160,7 +160,7 @@ export default function Inbox() {
                     <>
                       <div className="my-1 h-px bg-line" />
                       <div className="px-2.5 py-1 text-[11px] text-ink-3">Mensagem nova na conexão:</div>
-                      {connections.map((c) => (
+                      {connections.filter((c) => !c.instance).map((c) => (
                         <MenuItem key={c.id} onClick={() => (simulate('WhatsApp', c.id), close())}>
                           <span className="h-2 w-2 rounded-full" style={{ background: c.color }} /> {c.name}
                         </MenuItem>

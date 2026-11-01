@@ -107,6 +107,12 @@ export interface Message {
   mentions?: ID[];
   /** Conteúdo do arquivo (data URL) quando enviado da biblioteca */
   fileData?: string;
+  /** ID da mensagem no WhatsApp (gateway). Evita duplicar recebimentos e reenvios. */
+  externalId?: string;
+  /** Entrega pelo WhatsApp real (só em conexões ligadas a um gateway). */
+  delivery?: 'sent' | 'failed';
+  /** Motivo da falha de envio, mostrado ao atendente. */
+  deliveryError?: string;
 }
 
 export interface Stage {
@@ -238,6 +244,8 @@ export interface Connection {
   createdAt: string;
   /** Quem pode iniciar conversas por este número. Vazio = toda a equipe. */
   allowedUserIds?: ID[];
+  /** Nome da instância no gateway (Evolution API). Presente = conexão real, não simulada. */
+  instance?: string;
 }
 
 export interface QuickReply {

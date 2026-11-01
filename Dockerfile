@@ -1,4 +1,4 @@
-# ---------- 1) build da interface ----------
+# ---------- 1) build da interface e do worker ----------
 FROM node:22-alpine AS web
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -18,6 +18,8 @@ COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev
 COPY server/ ./
 COPY --from=web /app/dist /app/dist
+# worker de automação (chatbot, IA, follow-ups, disparos e WhatsApp), empacotado no build da interface
+COPY --from=web /app/server/worker ./worker
 USER node
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:8787/api/health || exit 1

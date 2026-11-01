@@ -6,6 +6,7 @@ import { cn, fieldVar, pickColor, SWATCHES, uid } from '../lib/utils';
 import { isSupabaseMode } from '../lib/supabase';
 import { hashPassword } from '../lib/password';
 import { checkServerAI } from '../lib/ai';
+import { serverHealth, type ServerHealth } from '../lib/api';
 import { COLLECTIONS, type DataState } from '../data/seed';
 import type { CustomFieldType, Role, User, Weekday } from '../types';
 
@@ -512,6 +513,7 @@ function Integracoes() {
           {[
             ['Saúde do servidor', `${origin}/api/health`],
             ['Resposta de IA (uso interno)', `${origin}/api/ai/reply`],
+            ['Webhook do WhatsApp (Evolution, configurado sozinho ao conectar)', `${origin}/api/whatsapp/webhook`],
           ].map(([k, v]) => (
             <div key={k} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-canvas px-3 py-2">
               <dt className="text-ink-2">{k}</dt>
@@ -529,12 +531,12 @@ function Instalacao() {
   const users = useStore((s) => s.users);
   const conversations = useStore((s) => s.conversations);
   const serverAI = useServerAI();
-  const [server, setServer] = useState<boolean | null>(null);
+  const [health, setHealth] = useState<ServerHealth | null | undefined>(undefined);
   useEffect(() => {
-    fetch('/api/health', { signal: AbortSignal.timeout(2500) })
-      .then((r) => setServer(r.ok))
-      .catch(() => setServer(false));
+    void serverHealth().then(setHealth);
   }, []);
+  const server = health === undefined ? null : Boolean(health);
+  const pending = (v: boolean | undefined) => (health === undefined ? null : Boolean(v));
   const https = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
   const checks: { label: string; ok: boolean | null; hint: string }[] = [
@@ -542,6 +544,12 @@ function Instalacao() {
     { label: 'Banco de dados Supabase conectado', ok: isSupabaseMode, hint: 'Passo 3 — sem Supabase o CRM roda em modo local (dados só neste navegador).' },
     { label: 'Servidor da API no ar', ok: server, hint: 'Container "api" do docker-compose.' },
     { label: 'Chave de IA configurada', ok: serverAI, hint: 'AI_API_KEY no .env do servidor. Sem ela, os agentes usam o motor local.' },
+    {
+      label: 'Automações rodando 24 h no servidor',
+      ok: pending(health?.automation),
+      hint: 'SUPABASE_SERVICE_ROLE_KEY no .env do servidor. Sem ela, chatbot, IA, follow-ups e disparos só rodam com um administrador logado.',
+    },
+    { label: 'Gateway de WhatsApp (Evolution API)', ok: pending(health?.whatsapp), hint: 'EVOLUTION_API_URL, EVOLUTION_API_KEY e WHATSAPP_WEBHOOK_TOKEN no .env do servidor.' },
     { label: 'Login de administrador funcionando', ok: users.some((u) => u.role === 'admin'), hint: 'Criado pelo instalador.' },
     { label: 'WhatsApp conectado', ok: connections.some((c) => c.status === 'conectado'), hint: 'Passo 7 — menu Conexões.' },
     { label: 'Mensagens chegando no Inbox', ok: conversations.length > 0, hint: 'Envie uma mensagem de outro número e responda pelo CRM.' },

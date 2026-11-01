@@ -1,5 +1,6 @@
 /**
- * Automações que rodam em segundo plano enquanto o CRM está aberto:
+ * Automações em segundo plano. Com o servidor de automação ligado (Supabase + service_role),
+ * elas rodam 24 h no worker do servidor (src/worker); senão, no navegador de um administrador:
  *  - Chatbot de menu: atende a primeira mensagem e direciona o lead.
  *  - Agentes de IA: respondem automaticamente mensagens recebidas.
  *  - Follow-ups: reenvia mensagens para leads que pararam de responder.
@@ -7,22 +8,33 @@
  *  - Simulador: gera mensagens de teste (útil antes de conectar o WhatsApp).
  */
 import { useStore } from '../store/useStore';
-import type { Conversation, LeadSource } from '../types';
-import { agentForConnection, runAgent } from './ai';
+import type { LeadSource } from '../types';
+import { runAgent } from './ai';
+import { host, serverRunsAutomation } from './host';
+import { openInboundConversation } from './whatsapp';
 import { handleChatbot } from './chatbot';
 import { handleNps } from './nps';
 import { tickBroadcasts, tickScheduled } from './broadcast';
-import { nowIso, uid } from './utils';
 
 let started = false;
+let stopFns: (() => void)[] = [];
 
-export function startAutomation() {
-  if (started) return;
+/** Desliga as automações (usado no desligamento do worker do servidor). */
+export function stopAutomation() {
+  for (const f of stopFns) f();
+  stopFns = [];
+  started = false;
+}
+
+/** Liga as automações. Retorna false quando o servidor já cuida delas (o navegador não duplica). */
+export async function startAutomation(): Promise<boolean> {
+  if (started) return true;
   started = true;
+  if (!host.server && (await serverRunsAutomation())) return false;
 
   // A IA responde sempre que chega mensagem nova em conversa com agente ativo
   let lastCount = useStore.getState().messages.length;
-  useStore.subscribe((s) => {
+  const unsubscribe = useStore.subscribe((s) => {
     if (s.messages.length <= lastCount) {
       lastCount = s.messages.length;
       return;
@@ -45,15 +57,17 @@ export function startAutomation() {
     tickScheduled();
   };
   tick();
-  setInterval(tick, 15_000);
+  const interval = setInterval(tick, 15_000);
+  stopFns.push(unsubscribe, () => clearInterval(interval));
+  return true;
 }
 
 /** Executa os passos de follow-up vencidos. Retorna quantas mensagens enviou. */
 export function runFollowUps(): number {
   const st = useStore.getState();
-  // No modo multiusuário só o administrador executa, para não duplicar envios
+  // No navegador só o administrador executa, para não duplicar envios (o servidor sempre executa)
   const me = st.users.find((u) => u.id === st.sessionUserId);
-  if (!me || me.role !== 'admin') return 0;
+  if (!host.server && (!me || me.role !== 'admin')) return 0;
   const active = st.followUps.filter((f) => f.active && f.steps.length > 0);
   if (!active.length) return 0;
 
@@ -113,56 +127,17 @@ const OPENERS = [
 export function simulateIncomingLead(source: LeadSource = 'Meta Ads', connectionId?: string) {
   const st = useStore.getState();
   const name = NAMES[Math.floor(Math.random() * NAMES.length)]!;
-  const conn = st.connections.find((c) => c.id === connectionId) ?? st.connections.find((c) => c.status === 'conectado') ?? st.connections[0];
+  // Nunca usa um número real (com gateway): as respostas automáticas iriam para um telefone inventado
+  const fakes = st.connections.filter((c) => !c.instance);
+  const conn = fakes.find((c) => c.id === connectionId) ?? fakes.find((c) => c.status === 'conectado') ?? fakes[0];
   const contact = st.createContact({
     name,
     phone: `55319${Math.floor(80000000 + Math.random() * 19999999)}`,
     source,
     tagIds: [],
   });
-  // Se houver chatbot de menu na conexão, ele atende primeiro; senão, o agente de IA
-  const hasBot = conn ? st.chatbots.some((b) => b.active && b.trigger === 'primeira_mensagem' && b.connectionIds.includes(conn.id)) : false;
-  const agent = conn && !hasBot ? agentForConnection(conn.id) : undefined;
-  const conv: Conversation = {
-    id: uid('cnv-'),
-    contactId: contact.id,
-    connectionId: conn?.id ?? '',
-    status: 'aguardando',
-    departmentId: conn?.departmentId,
-    aiEnabled: Boolean(agent),
-    agentId: agent?.id,
-    unread: 0,
-    pinned: false,
-    lastMessageAt: nowIso(),
-    aiReplies: 0,
-  };
-  st.add('conversations', conv);
-
-  // Lead novo entra automaticamente na primeira etapa do funil principal
-  const pipeline = st.pipelines[0];
-  if (pipeline?.stages[0]) {
-    st.add('deals', {
-      id: uid('dea-'),
-      pipelineId: pipeline.id,
-      stageId: pipeline.stages[0].id,
-      contactId: contact.id,
-      title: `Oportunidade — ${name}`,
-      value: 0,
-      productIds: [],
-      status: 'aberto',
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    });
-  }
-  st.add('notifications', {
-    id: uid('ntf-'),
-    title: `Novo lead · ${source}`,
-    body: `${name} iniciou uma conversa.`,
-    createdAt: nowIso(),
-    read: false,
-    link: `/inbox/${conv.id}`,
-  });
-  st.receiveMessage(conv.id, OPENERS[Math.floor(Math.random() * OPENERS.length)]!);
-  return conv.id;
+  const convId = openInboundConversation(contact.id, conn, { source, newDeal: true });
+  useStore.getState().receiveMessage(convId, OPENERS[Math.floor(Math.random() * OPENERS.length)]!);
+  return convId;
 }
 

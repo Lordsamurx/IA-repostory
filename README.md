@@ -75,7 +75,7 @@ Siga o material de instalação. Este repositório já traz o **`SETUP-KIT/insta
 | Passo 4 | Criar o registro **A** do domínio apontando para o IP da VPS (com antecedência) |
 | Passo 5 | Clonar o projeto e rodar o instalador (abaixo) |
 | Passo 6 | Entrar com o e-mail e a senha criados e fazer o onboarding |
-| Passo 7 | Conexões → Conectar novo WhatsApp |
+| Passo 7 | Conexões → Conectar novo WhatsApp (QR real com a Evolution API configurada) |
 
 ```bash
 git clone <url-deste-repositorio> crm && cd crm
@@ -90,9 +90,14 @@ O instalador:
 4. Recusa a URL de conexão direta (`db.`) e aceita só o Session Pooler.
 5. Cria as tabelas e as regras de segurança.
 6. Cria o seu login de administrador.
-7. Sobe o CRM com **HTTPS automático** (Caddy + Let's Encrypt).
+7. Pergunta se liga a **automação 24 h** e o **WhatsApp real** (Evolution API já existente ou uma nova nesta VPS). Isso é feito pelo `SETUP-KIT/whatsapp.sh`, que também pode ser rodado depois.
+8. Sobe o CRM com **HTTPS automático** (Caddy + Let's Encrypt).
 
-A chave `service_role` é usada só durante a instalação e **não fica salva** no servidor.
+Com a automação 24 h ligada, a chave `service_role` fica no `.env` do servidor (permissão 600) e só o worker do servidor a usa. Ela nunca vai para o navegador. Sem ela, a chave é usada só na instalação e as automações rodam no navegador de um administrador logado.
+
+```bash
+sudo bash SETUP-KIT/whatsapp.sh   # liga/troca automação 24 h e Evolution numa instalação existente
+```
 
 Depois de instalar, confira tudo (DNS, HTTPS, cabeçalhos, Supabase, containers):
 
@@ -124,10 +129,14 @@ src/
     chatbot.ts        execução dos menus de chatbot
     automation.ts     IA automática, follow-ups, simulador
     broadcast.ts      disparos e mensagens agendadas
+    whatsapp.ts       mensagem recebida → contato/conversa; caixa de saída
     sync.ts           sincronização com o Supabase + Realtime
+  worker/index.ts     worker de automação do servidor (mesmas regras, sem tela)
     metrics.ts        cálculos das análises
   data/seed.ts        dados de demonstração e base vazia
-server/index.mjs      API (IA) + serve a interface em produção
+server/index.mjs      API (IA, WhatsApp) + serve a interface + liga o worker
+server/whatsapp.mjs   cliente da Evolution API e leitura do webhook
+server/worker/        worker empacotado pelo build (fora do Git)
 server/test/          testes da API (node --test); apoio em server/support/
 supabase/schema.sql   tabela, RLS e Realtime
 supabase/test-rls.sh  teste do RLS em PostgreSQL 16 temporário
@@ -141,7 +150,7 @@ Leia também:
 
 - [docs/ARQUITETURA.md](docs/ARQUITETURA.md): componentes, fluxo de dados, segurança e decisões.
 - [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md): tokens, componentes e paleta dos gráficos.
-- [docs/WHATSAPP.md](docs/WHATSAPP.md): como ligar um gateway real de WhatsApp.
+- [docs/WHATSAPP.md](docs/WHATSAPP.md): WhatsApp real com a Evolution API e automação 24 h.
 
 ## Testes
 
@@ -149,12 +158,13 @@ Pré-requisitos: Node 22 e as dependências instaladas (`npm ci` na raiz e em `s
 
 ```bash
 npm run typecheck      # tipos do front (tsc -b)
-npm test               # 67 testes: CSV, hash de senha e API do servidor
+npm test               # 106 testes: CSV, hash de senha, API, WhatsApp e worker de ponta a ponta
 npm run test:rls       # RLS em PostgreSQL 16 temporário (porta 5499; apaga tudo ao final)
 npm run build          # verificação completa de build
 ```
 
-- Os testes da API sobem o servidor em porta aleatória e usam servidores falsos da Anthropic e do Supabase. Nenhuma chave real é usada e nenhuma chamada sai da máquina.
+- Os testes da API sobem o servidor em porta aleatória e usam servidores falsos da Anthropic, do Supabase e da Evolution API. Nenhuma chave real é usada e nenhuma chamada sai da máquina.
+- `npm test` gera o worker (`npm run build:worker`) e roda um teste de ponta a ponta: mensagem do WhatsApp → contato, conversa e negócio → chatbot → IA → envio pelo gateway → confirmação de leitura, tudo gravado num banco falso.
 - `npm run test:rls` aplica `supabase/schema.sql` duas vezes e confere o que estranho, atendente, admin e o papel anônimo podem fazer. Sai com código de erro se alguma verificação falhar.
 
 ---
@@ -167,13 +177,15 @@ Pronto e testado:
 - Persistência local.
 - Sincronização multiusuário via Supabase, com RLS testado em PostgreSQL.
 - API de IA (Anthropic ou OpenAI).
+- WhatsApp real por QR Code (Evolution API v2): QR na tela Conexões, recebimento por webhook, envio, confirmação de entrega/leitura.
+- Automação 24 h no servidor: chatbot, IA, follow-ups, disparos e mensagens agendadas sem navegador aberto.
 - Instalador e Docker.
 
-**Ainda não integrado:** o envio e o recebimento reais de mensagens pelo WhatsApp. Hoje a conexão por QR Code é simulada e as mensagens “recebidas” vêm do simulador. O plano de integração (gateway de QR como a Evolution API, ou a Cloud API oficial da Meta, via webhook no `server/`) está em [docs/WHATSAPP.md](docs/WHATSAPP.md). O resto do sistema já está preparado para isso.
+Limitações conhecidas (detalhes em [docs/WHATSAPP.md](docs/WHATSAPP.md)):
 
-Outras limitações conhecidas:
-
-- Follow-ups, disparos e mensagens agendadas rodam no navegador de um **administrador logado**. Em produção, o ideal é mover esse agendador para o `server/`.
+- Envio de **arquivos** pelo WhatsApp ainda não existe (só texto). Mídia recebida aparece como aviso (“📷 Imagem”, “🎤 Áudio”), sem o arquivo.
+- API oficial da Meta e provedores parceiros continuam só cadastrais.
+- O formato da Evolution foi implementado pela documentação v2 e testado contra um simulador; confirme no roteiro de teste com a sua Evolution antes de usar com clientes.
 
 ## Licença
 

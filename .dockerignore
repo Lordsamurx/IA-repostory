@@ -7,4 +7,5 @@ supabase
 docs
 test
 server/node_modules
+server/worker
 server/test

@@ -11,18 +11,49 @@ import type { Agent, Conversation, KnowledgeItem, Message, Weekday } from '../ty
 import { fillTemplate, firstName, money, normalize, nowIso, uid } from './utils';
 import { supabase } from './supabase';
 
+export type AiReply = { text: string; handoff?: boolean };
+
+/** Como a resposta do modelo é obtida. No navegador: HTTP para /api/ai/reply. No worker: chamada direta. */
+export interface AiTransport {
+  available: () => Promise<boolean>;
+  reply: (body: Record<string, unknown>) => Promise<AiReply>;
+}
+
 let serverAI: boolean | null = null;
 
-export async function checkServerAI(): Promise<boolean> {
-  if (serverAI !== null) return serverAI;
-  try {
-    const r = await fetch('/api/health', { signal: AbortSignal.timeout(2500) });
-    const j = r.ok ? ((await r.json()) as { ai?: boolean }) : null;
-    serverAI = Boolean(j?.ai);
-  } catch {
-    serverAI = false;
-  }
-  return serverAI;
+const httpTransport: AiTransport = {
+  async available() {
+    if (serverAI !== null) return serverAI;
+    try {
+      const r = await fetch('/api/health', { signal: AbortSignal.timeout(2500) });
+      const j = r.ok ? ((await r.json()) as { ai?: boolean }) : null;
+      serverAI = Boolean(j?.ai);
+    } catch {
+      serverAI = false;
+    }
+    return serverAI;
+  },
+  async reply(body) {
+    const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : undefined;
+    const r = await fetch('/api/ai/reply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`API IA ${r.status}`);
+    return (await r.json()) as AiReply;
+  },
+};
+
+let transport: AiTransport = httpTransport;
+
+/** Usado pelo worker do servidor para chamar a IA sem passar pela rede. */
+export function setAiTransport(t: AiTransport) {
+  transport = t;
+}
+
+export function checkServerAI(): Promise<boolean> {
+  return transport.available();
 }
 
 const STOP = new Set(
@@ -71,7 +102,7 @@ export function agentForConnection(connectionId: string) {
   return agents.find((a) => a.active && a.connectionIds.includes(connectionId) && agentIsOnSchedule(a));
 }
 
-function localReply(agent: Agent, conv: Conversation, history: Message[]): { text: string; handoff?: boolean } {
+function localReply(agent: Agent, conv: Conversation, history: Message[]): AiReply {
   const st = useStore.getState();
   const contact = st.contacts.find((c) => c.id === conv.contactId);
   const vars = { nome: contact ? firstName(contact.name) : '', empresa: st.settings.companyName };
@@ -113,34 +144,27 @@ function localReply(agent: Agent, conv: Conversation, history: Message[]): { tex
 async function serverReply(agent: Agent, conv: Conversation, history: Message[]) {
   const st = useStore.getState();
   const contact = st.contacts.find((c) => c.id === conv.contactId);
-  const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : undefined;
-  const r = await fetch('/api/ai/reply', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({
-      agent: {
-        name: agent.name,
-        prompt: fillTemplate(agent.prompt, { empresa: st.settings.companyName, nome: contact?.name ?? '' }),
-        objective: agent.objective,
-        tone: agent.tone,
-        model: agent.model,
-        temperature: agent.temperature,
-        qualification: agent.qualification,
-        maxDiscount: agent.maxDiscount,
-        handoffKeywords: agent.handoff.keywords,
-      },
-      company: st.settings.companyName,
-      contactName: contact?.name,
-      knowledge: st.knowledge.filter((k) => agent.knowledgeIds.includes(k.id)).map((k) => ({ title: k.title, content: k.content })),
-      products: st.products.filter((p) => p.active).map((p) => ({ name: p.name, price: p.price, description: p.description })),
-      history: history
-        .filter((m) => m.kind === 'text')
-        .slice(-20)
-        .map((m) => ({ role: m.direction === 'in' ? 'user' : 'assistant', content: m.body })),
-    }),
+  return transport.reply({
+    agent: {
+      name: agent.name,
+      prompt: fillTemplate(agent.prompt, { empresa: st.settings.companyName, nome: contact?.name ?? '' }),
+      objective: agent.objective,
+      tone: agent.tone,
+      model: agent.model,
+      temperature: agent.temperature,
+      qualification: agent.qualification,
+      maxDiscount: agent.maxDiscount,
+      handoffKeywords: agent.handoff.keywords,
+    },
+    company: st.settings.companyName,
+    contactName: contact?.name,
+    knowledge: st.knowledge.filter((k) => agent.knowledgeIds.includes(k.id)).map((k) => ({ title: k.title, content: k.content })),
+    products: st.products.filter((p) => p.active).map((p) => ({ name: p.name, price: p.price, description: p.description })),
+    history: history
+      .filter((m) => m.kind === 'text')
+      .slice(-20)
+      .map((m) => ({ role: m.direction === 'in' ? 'user' : 'assistant', content: m.body })),
   });
-  if (!r.ok) throw new Error(`API IA ${r.status}`);
-  return (await r.json()) as { text: string; handoff?: boolean };
 }
 
 const running = new Set<string>();
@@ -162,7 +186,7 @@ export async function runAgent(conversationId: string) {
     st.setTyping(conversationId, true);
     await new Promise((r) => setTimeout(r, 900 + Math.random() * 900));
 
-    let reply: { text: string; handoff?: boolean };
+    let reply: AiReply;
     if (wantsHuman || conv.aiReplies >= agent.handoff.maxReplies) {
       const contact = st.contacts.find((c) => c.id === conv.contactId);
       reply = {

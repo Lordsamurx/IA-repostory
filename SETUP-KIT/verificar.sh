@@ -64,6 +64,18 @@ if [[ "$AI_KEY_SET" == 1 ]]; then
   [[ "$HEALTH" == *'"ai":true'* ]] && ok "chave de IA carregada no servidor" || bad "AI_API_KEY no .env, mas o servidor não a carregou"
 else warn "sem AI_API_KEY: os agentes usam o motor local"; fi
 
+SR_SET="$([[ -n "$(env_get SUPABASE_SERVICE_ROLE_KEY)" ]] && echo 1 || echo 0)"
+if [[ "$SR_SET" == 1 ]]; then
+  [[ "$HEALTH" == *'"automation":true'* ]] && ok "automação 24 h rodando no servidor" || bad "SUPABASE_SERVICE_ROLE_KEY no .env, mas a automação não ligou (veja: docker compose logs app | grep worker)"
+else warn "automação só no navegador do administrador (sem SUPABASE_SERVICE_ROLE_KEY — rode SETUP-KIT/whatsapp.sh)"; fi
+if [[ -n "$(env_get EVOLUTION_API_URL)" ]]; then
+  [[ "$HEALTH" == *'"whatsapp":true'* ]] && ok "gateway de WhatsApp (Evolution) configurado" || bad "EVOLUTION_API_URL no .env, mas o servidor não carregou o gateway"
+  [[ -n "$(env_get WHATSAPP_WEBHOOK_TOKEN)" ]] && ok "webhook do WhatsApp com segredo" || bad "falta WHATSAPP_WEBHOOK_TOKEN no .env"
+else warn "WhatsApp real não configurado: conexões simuladas (rode SETUP-KIT/whatsapp.sh)"; fi
+CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H 'content-type: application/json' -d '{"event":"messages.upsert"}' "$URL/api/whatsapp/webhook")"
+[[ "$CODE" == 401 || "$CODE" == 503 ]] && ok "webhook do WhatsApp recusa chamada sem segredo (HTTP $CODE)" || bad "/api/whatsapp/webhook sem segredo respondeu $CODE (esperado 401)"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H 'content-type: application/json' -d '{"connectionId":"x"}' "$URL/api/whatsapp/connect")"
+[[ "$CODE" == 401 || "$CODE" == 503 ]] && ok "conectar WhatsApp exige login de admin (HTTP $CODE)" || bad "/api/whatsapp/connect sem login respondeu $CODE (esperado 401)"
 PAGE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL/inbox")"
 [[ "$PAGE" == 200 ]] && ok "a interface abre (rota /inbox → 200)" || bad "a interface não abriu (/inbox → $PAGE)"
 

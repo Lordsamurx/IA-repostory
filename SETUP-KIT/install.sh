@@ -70,6 +70,16 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 systemctl enable --now docker >/dev/null 2>&1 || true
 docker compose version >/dev/null 2>&1 || { c_err "Docker Compose não encontrado."; exit 1; }
+# Portas 80/443 precisam estar livres para o Caddy (HTTPS automático).
+# VPS com EasyPanel, Coolify, Traefik ou Nginx já ocupa essas portas: veja docs/WHATSAPP.md → "VPS com EasyPanel".
+BUSY="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:(80|443)$/ {print $NF}' | grep -v caddy || true)"
+if [[ -n "$BUSY" ]]; then
+  c_warn "As portas 80/443 já estão em uso nesta VPS:"
+  echo "$BUSY"
+  c_warn "O CRM usa o próprio Caddy nessas portas. Em VPS com EasyPanel/Traefik, siga docs/WHATSAPP.md (seção EasyPanel)."
+  ask CONT "Continuar mesmo assim? (s/N)" "n"
+  [[ "$CONT" =~ ^[sS]$ ]] || exit 1
+fi
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null
 fi
@@ -104,7 +114,7 @@ while true; do
   c_err "Não consegui validar a URL/chave pública (HTTP $code). Confira se não colou duas vezes ou a chave errada."
 done
 while true; do
-  ask_secret SERVICE_ROLE "Chave service_role (chave-mestra — usada só agora, não fica salva)"
+  ask_secret SERVICE_ROLE "Chave service_role (chave-mestra)"
   code=$(curl -s -o /dev/null -w '%{http_code}' "$SUPABASE_URL/auth/v1/admin/users?per_page=1" -H "apikey: $SERVICE_ROLE" -H "Authorization: Bearer $SERVICE_ROLE" || true)
   [[ "$code" == "200" ]] && { c_ok "Chave service_role válida"; break; }
   c_err "Chave recusada (HTTP $code). Será que colou a anon no lugar da service_role?"
@@ -166,7 +176,13 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$SUPABASE_URL/rest/v1/crm_records
   -H 'Prefer: resolution=merge-duplicates' -d "$record")
 [[ "$code" =~ ^20 ]] || { c_err "Falha ao registrar o administrador na equipe (HTTP $code)."; exit 1; }
 c_ok "Administrador $ADMIN_EMAIL pronto"
-unset SERVICE_ROLE ADMIN_PASS
+unset ADMIN_PASS
+
+echo
+echo "Automação 24 h: o servidor roda chatbot, IA, follow-ups e disparos mesmo com todos"
+echo "os navegadores fechados. Para isso a service_role fica no .env (permissão 600)."
+ask KEEP_SR "Ligar a automação 24 h no servidor? (S/n)" "s"
+[[ "$KEEP_SR" =~ ^[nN]$ ]] && SERVICE_ROLE=""
 
 # ---------------------------------------------------------------------
 c_step "7/7  Subindo o CRM"
@@ -179,8 +195,14 @@ VITE_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 AI_PROVIDER=$AI_PROVIDER
 AI_API_KEY=$AI_API_KEY
 AI_MODEL=$AI_MODEL
+SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE
 ENV
 chmod 600 .env
+unset SERVICE_ROLE
+
+echo
+ask WA_NOW "Configurar agora o WhatsApp real (Evolution API)? (S/n)" "s"
+if [[ ! "$WA_NOW" =~ ^[nN]$ ]]; then bash SETUP-KIT/whatsapp.sh --no-restart; fi
 docker compose up -d --build
 sleep 5
 if curl -fsS "https://$DOMAIN/api/health" >/dev/null 2>&1; then c_ok "https://$DOMAIN respondendo"; else c_warn "O certificado HTTPS pode levar alguns minutos para sair. Recarregue depois."; fi
@@ -195,7 +217,8 @@ cat <<EOF
 
   O que ainda falta você fazer:
    1. Entrar no CRM e concluir o onboarding (negócio, fuso, funil).
-   2. Menu Conexões → Conectar novo WhatsApp.
+   2. Menu Conexões → Conectar novo WhatsApp → QR Code (com a Evolution
+      configurada, o QR é real). Configurar depois: bash SETUP-KIT/whatsapp.sh
    3. Mandar uma mensagem de outro número e responder pelo Inbox.
    4. Segurança: Supabase → Authentication → Sign In / Providers →
       desligue "Allow new users to sign up". Para adicionar alguém da

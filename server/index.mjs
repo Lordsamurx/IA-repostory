@@ -4,23 +4,28 @@
  *  - Serve a interface (pasta dist/ gerada pelo `npm run build`) com fallback de SPA.
  *  - GET  /api/health    → status do servidor e se a IA está configurada.
  *  - POST /api/ai/reply  → gera a resposta do agente de IA (a chave fica só aqui).
+ *  - /api/whatsapp/*     → conexão por QR Code (Evolution API) e webhook de mensagens.
+ *  - Worker de automação → com SUPABASE_SERVICE_ROLE_KEY, chatbot, IA, follow-ups e
+ *    disparos rodam aqui 24 h (server/worker/automation.mjs, gerado no build).
  *
  * Variáveis de ambiente: veja .env.example na raiz do projeto.
  * TRUST_PROXY=1 indica que há exatamente um proxy confiável (Caddy) na frente:
  * só então o IP do cliente é lido de X-Forwarded-For.
  */
 import http from 'node:http';
-import { createHash } from 'node:crypto';
-import { createReadStream, statSync } from 'node:fs';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
+import { createEvolution, instanceName, parseWebhook } from './whatsapp.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 
 /** Limites do endpoint de IA (tamanhos em caracteres, salvo indicação). */
 const LIMITS = {
   bodyBytes: 256 * 1024,
+  webhookBytes: 1024 * 1024,
   prompt: 8000,
   objective: 500,
   name: 120,
@@ -79,6 +84,7 @@ export function parseTrustProxy(value = '') {
 
 export function loadConfig(env = process.env) {
   const aiProvider = (env.AI_PROVIDER ?? 'anthropic').toLowerCase();
+  const publicUrl = (env.PUBLIC_URL || (env.DOMAIN ? `https://${env.DOMAIN}` : '')).replace(/\/+$/, '');
   return {
     port: Number(env.PORT ?? 8787),
     staticDir: resolve(env.STATIC_DIR ?? join(here, '..', 'dist')),
@@ -90,6 +96,14 @@ export function loadConfig(env = process.env) {
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL || undefined,
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
     rateLimitPerMinute: Number(env.AI_RATE_LIMIT_PER_MIN ?? 60),
+    // chave-mestra do Supabase: só o worker de automação usa (nunca vai para o navegador)
+    supabaseServiceKey: env.SUPABASE_SERVICE_ROLE_KEY ?? '',
+    evolutionUrl: (env.EVOLUTION_API_URL ?? '').replace(/\/+$/, ''),
+    evolutionApiKey: env.EVOLUTION_API_KEY ?? '',
+    evolutionInstancePrefix: env.EVOLUTION_INSTANCE_PREFIX || 'leadflow-',
+    webhookToken: env.WHATSAPP_WEBHOOK_TOKEN ?? '',
+    // endereço que a Evolution chama; com a Evolution no mesmo docker-compose use http://app:8787/api/whatsapp/webhook
+    webhookUrl: env.WHATSAPP_WEBHOOK_URL || (publicUrl ? `${publicUrl}/api/whatsapp/webhook` : ''),
   };
 }
 
@@ -105,6 +119,14 @@ const clampNumber = (v, min, max, fallback) => {
 const isInside = (dir, file) => file === dir || file.startsWith(dir + sep);
 const normalizeIp = (ip) => String(ip ?? '').replace(/^::ffff:/, '');
 const isLoopback = (ip) => ['127.0.0.1', '::1'].includes(normalizeIp(ip));
+
+/** Comparação de segredos em tempo constante (vazio nunca confere). */
+export function sameSecret(a, b) {
+  if (!a || !b) return false;
+  const x = createHash('sha256').update(String(a)).digest();
+  const y = createHash('sha256').update(String(b)).digest();
+  return timingSafeEqual(x, y);
+}
 
 function isFile(path) {
   try {
@@ -256,11 +278,18 @@ export function normalizeInput(body) {
 }
 
 // ------------------------------------------------------------------ servidor
-export function createServer(input = loadConfig()) {
+/**
+ * runtime.worker: o worker de automação, quando ligado (ver startWorker()).
+ * runtime.evolution: cliente do gateway (os testes injetam um falso).
+ */
+export function createServer(input = loadConfig(), runtime = {}) {
   // valores undefined não apagam o padrão
   const cfg = { ...loadConfig({}), ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) };
   const SEC = securityHeaders(cfg);
   const limited = createRateLimiter(cfg.rateLimitPerMinute);
+  const limitedWa = createRateLimiter(120);
+  const evolution =
+    runtime.evolution ?? (cfg.evolutionUrl && cfg.evolutionApiKey ? createEvolution({ url: cfg.evolutionUrl, apiKey: cfg.evolutionApiKey }) : null);
   /** sha256(token) -> validade. Evita chamar o Supabase a cada mensagem. */
   const tokenCache = new Map();
   const anthropic =
@@ -285,17 +314,20 @@ export function createServer(input = loadConfig()) {
     return normalizeIp(chain.at(-cfg.trustProxy)) || socketIp;
   }
 
-  /** Sem Supabase, só o próprio computador (desenvolvimento). Com Supabase, só membros da equipe. */
-  async function isAuthorized(req) {
+  /**
+   * Sem Supabase, só o próprio computador (desenvolvimento). Com Supabase, só membros da equipe;
+   * com { admin: true }, só administradores (a mesma função do banco usada pela RLS decide).
+   */
+  async function isAuthorized(req, { admin = false } = {}) {
     if (!cfg.supabaseUrl) return isLoopback(req.socket.remoteAddress);
     const auth = req.headers.authorization ?? '';
     if (!auth.startsWith('Bearer ')) return false;
     const token = auth.slice(7).trim();
     if (!token || token.length > 4096) return false;
-    const key = createHash('sha256').update(token).digest('hex');
+    const key = createHash('sha256').update(`${admin ? 'admin' : 'member'}:${token}`).digest('hex');
     const until = tokenCache.get(key);
     if (until && until > Date.now()) return true;
-    const ok = await verifyTeamMember(token).catch(() => false);
+    const ok = await verifyTeamMember(token, admin ? 'crm_is_admin' : 'crm_is_member').catch(() => false);
     if (ok) {
       if (tokenCache.size >= TOKEN_CACHE_MAX) tokenCache.delete(tokenCache.keys().next().value);
       tokenCache.set(key, Date.now() + TOKEN_CACHE_MS);
@@ -303,7 +335,7 @@ export function createServer(input = loadConfig()) {
     return ok;
   }
 
-  async function verifyTeamMember(token) {
+  async function verifyTeamMember(token, fn = 'crm_is_member') {
     const headers = { apikey: cfg.supabaseAnonKey, authorization: `Bearer ${token}` };
     const who = await fetch(`${cfg.supabaseUrl}/auth/v1/user`, { headers, signal: AbortSignal.timeout(SUPABASE_TIMEOUT_MS) });
     if (!who.ok) return false;
@@ -312,7 +344,7 @@ export function createServer(input = loadConfig()) {
     if (!uid || uid.length > 100) return false;
     // A pessoa precisa estar na equipe. A mesma função do banco usada pela RLS decide:
     // vínculo pelo ID do login ou pelo e-mail (ver supabase/schema.sql).
-    const rpc = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/crm_is_member`, {
+    const rpc = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/${fn}`, {
       method: 'POST',
       headers: { ...headers, 'content-type': 'application/json' },
       body: '{}',
@@ -391,14 +423,14 @@ export function createServer(input = loadConfig()) {
     return [500, 'erro interno'];
   }
 
-  async function readJsonBody(req) {
+  async function readJsonBody(req, maxBytes = LIMITS.bodyBytes) {
     const declared = Number(req.headers['content-length'] ?? 0);
-    if (declared > LIMITS.bodyBytes) throw httpError(413, 'payload muito grande');
+    if (declared > maxBytes) throw httpError(413, 'payload muito grande');
     let size = 0;
     const chunks = [];
     for await (const chunk of req) {
       size += chunk.length;
-      if (size > LIMITS.bodyBytes) throw httpError(413, 'payload muito grande');
+      if (size > maxBytes) throw httpError(413, 'payload muito grande');
       chunks.push(chunk);
     }
     let parsed;
@@ -411,6 +443,12 @@ export function createServer(input = loadConfig()) {
     return parsed;
   }
 
+  /** Resposta da IA a partir do corpo já lido (usada pela rota e pelo worker). */
+  async function aiReply(body) {
+    const input = normalizeInput(body);
+    return cfg.aiProvider === 'openai' ? replyOpenAI(input) : replyAnthropic(input);
+  }
+
   async function handleAiReply(req, res) {
     if (!cfg.aiApiKey) return send(res, 503, { error: 'AI_API_KEY não configurada no servidor' });
     // limite antes da autenticação: quem erra o token também conta, e não consome o Supabase
@@ -419,12 +457,76 @@ export function createServer(input = loadConfig()) {
     const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
     if (type !== 'application/json') return send(res, 415, { error: 'use Content-Type: application/json' });
     try {
-      const input = normalizeInput(await readJsonBody(req));
-      const out = cfg.aiProvider === 'openai' ? await replyOpenAI(input) : await replyAnthropic(input);
-      send(res, 200, out);
+      send(res, 200, await aiReply(await readJsonBody(req)));
     } catch (err) {
       const [status, message] = failure(err);
       send(res, status, { error: message }, status === 413 ? { connection: 'close' } : {});
+    }
+  }
+
+  // -------------------------------------------------------------- WhatsApp
+  /** Webhook da Evolution: autenticado pelo segredo WHATSAPP_WEBHOOK_TOKEN (cabeçalho ou ?token=). */
+  async function handleWebhook(req, res, url) {
+    if (!cfg.webhookToken) return send(res, 503, { error: 'WHATSAPP_WEBHOOK_TOKEN não configurado' });
+    const given = req.headers['x-webhook-token'] ?? url.searchParams.get('token') ?? '';
+    if (!sameSecret(given, cfg.webhookToken)) return send(res, 401, { error: 'não autorizado' });
+    const worker = runtime.worker;
+    if (!worker) return send(res, 503, { error: 'automação do servidor desligada (falta SUPABASE_SERVICE_ROLE_KEY)' });
+    let body;
+    try {
+      body = await readJsonBody(req, LIMITS.webhookBytes);
+    } catch (err) {
+      const [status, message] = failure(err);
+      return send(res, status, { error: message });
+    }
+    let handled = 0;
+    for (const event of parseWebhook(body)) {
+      // só instâncias deste CRM (o mesmo gateway pode atender outros sistemas)
+      const instance = event.instance ?? event.message?.instance;
+      if (instance && !worker.hasInstance(instance)) continue;
+      try {
+        if (worker.ingest(event)) handled++;
+      } catch (err) {
+        console.error('[whatsapp/webhook]', err);
+      }
+    }
+    send(res, 200, { ok: true, handled });
+  }
+
+  /** Rotas da tela Conexões: conectar (QR), consultar estado e desconectar. Só administradores. */
+  async function handleWhatsappAdmin(req, res, action) {
+    if (!evolution) return send(res, 503, { error: 'Evolution API não configurada no servidor (EVOLUTION_API_URL e EVOLUTION_API_KEY)' });
+    if (limitedWa(clientIp(req))) return send(res, 429, { error: 'muitas requisições, aguarde um minuto' });
+    if (!(await isAuthorized(req, { admin: true }))) return send(res, 401, { error: 'só administradores conectam números' });
+    const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    if (type !== 'application/json') return send(res, 415, { error: 'use Content-Type: application/json' });
+    try {
+      const body = await readJsonBody(req, 4096);
+      const instance = instanceName(cfg.evolutionInstancePrefix, body.connectionId);
+      if (!instance) throw httpError(400, 'connectionId inválido');
+      if (action === 'connect') {
+        if (!cfg.webhookToken || !cfg.webhookUrl) {
+          throw httpError(503, 'WHATSAPP_WEBHOOK_TOKEN e DOMAIN (ou WHATSAPP_WEBHOOK_URL) precisam estar no .env do servidor');
+        }
+        const r = await evolution.connect(instance, { webhookUrl: cfg.webhookUrl, token: cfg.webhookToken });
+        return send(res, 200, { instance, ...r });
+      }
+      if (action === 'status') {
+        const state = await evolution.state(instance);
+        const qr = state !== 'open' && body.qr === true ? await evolution.qr(instance) : null;
+        return send(res, 200, { instance, state, qr });
+      }
+      await evolution.logout(instance).catch((err) => {
+        if (err.status !== 404 && err.status !== 400) throw err; // já estava desconectada
+      });
+      return send(res, 200, { instance, state: 'close' });
+    } catch (err) {
+      if (err?.detail !== undefined) {
+        console.error('[whatsapp]', err.message, err.detail);
+        return send(res, 502, { error: `o gateway de WhatsApp recusou o pedido (HTTP ${err.status})` });
+      }
+      const [status, message] = failure(err);
+      send(res, status, { error: message });
     }
   }
 
@@ -457,14 +559,31 @@ export function createServer(input = loadConfig()) {
 
   // -------------------------------------------------------------- roteamento
   async function handle(req, res) {
-    let pathname;
+    let url;
     try {
-      pathname = new URL(req.url ?? '/', 'http://x').pathname;
+      url = new URL(req.url ?? '/', 'http://x');
     } catch {
       return send(res, 400, { error: 'requisição inválida' });
     }
+    const { pathname } = url;
     if (pathname === '/api/health') {
-      return send(res, 200, { ok: true, ai: Boolean(cfg.aiApiKey), provider: cfg.aiProvider, supabase: Boolean(cfg.supabaseUrl) });
+      return send(res, 200, {
+        ok: true,
+        ai: Boolean(cfg.aiApiKey),
+        provider: cfg.aiProvider,
+        supabase: Boolean(cfg.supabaseUrl),
+        automation: Boolean(runtime.worker),
+        whatsapp: Boolean(evolution),
+      });
+    }
+    if (pathname === '/api/whatsapp/webhook') {
+      if (req.method !== 'POST') return send(res, 405, { error: 'método não permitido' });
+      return handleWebhook(req, res, url);
+    }
+    const waAction = { '/api/whatsapp/connect': 'connect', '/api/whatsapp/status': 'status', '/api/whatsapp/disconnect': 'disconnect' }[pathname];
+    if (waAction) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'método não permitido' });
+      return handleWhatsappAdmin(req, res, waAction);
     }
     if (pathname === '/api/ai/reply') {
       if (req.method !== 'POST') return send(res, 405, { error: 'método não permitido' });
@@ -486,17 +605,56 @@ export function createServer(input = loadConfig()) {
   server.headersTimeout = 15_000;
   server.requestTimeout = 60_000;
   server.timeout = 120_000;
+  server.aiReply = aiReply;
+  server.evolution = evolution;
   return server;
 }
 
+/**
+ * Liga o worker de automação quando há Supabase + service_role e o pacote foi gerado
+ * (`npm run build`). Sem isso, as automações continuam no navegador do administrador.
+ */
+export async function startWorker(cfg, server, runtime, file = join(here, 'worker', 'automation.mjs')) {
+  if (!cfg.supabaseUrl || !cfg.supabaseServiceKey) return null;
+  if (!existsSync(file)) {
+    console.warn('[worker] server/worker/automation.mjs não encontrado — rode npm run build. A automação fica no navegador.');
+    return null;
+  }
+  try {
+    const mod = await import(pathToFileURL(file).href);
+    runtime.worker = await mod.startWorker({
+      supabaseUrl: cfg.supabaseUrl,
+      serviceKey: cfg.supabaseServiceKey,
+      ai: cfg.aiApiKey ? (body) => server.aiReply(body) : undefined,
+      sendText: server.evolution ? (instance, phone, text) => server.evolution.sendText(instance, phone, text) : undefined,
+    });
+    return runtime.worker;
+  } catch (err) {
+    console.error('[worker] não foi possível ligar a automação no servidor:', err);
+    return null;
+  }
+}
+
 /** Sobe o servidor quando o arquivo é executado diretamente (node index.mjs). */
-export function start(cfg = loadConfig()) {
-  const server = createServer(cfg);
+export async function start(cfg = loadConfig()) {
+  const runtime = {};
+  const server = createServer(cfg, runtime);
+  // o worker liga antes de aceitar conexões: /api/health já responde "automation" certo para o navegador
+  await startWorker(cfg, server, runtime);
   server.listen(cfg.port, () => {
     console.log(`LeadFlow CRM no ar em http://localhost:${cfg.port}`);
     console.log(`IA: ${cfg.aiApiKey ? `${cfg.aiProvider} (${cfg.aiModel})` : 'não configurada — agentes usam o motor local'}`);
     console.log(`Supabase: ${cfg.supabaseUrl ? 'configurado' : 'não configurado (modo local)'}`);
+    console.log(`Automação: ${runtime.worker ? 'no servidor (24 h)' : 'no navegador do administrador'}`);
+    console.log(`WhatsApp: ${server.evolution ? `Evolution API (${cfg.evolutionUrl})` : 'não configurado (conexões simuladas)'}`);
   });
+  const shutdown = async () => {
+    server.close();
+    await runtime.worker?.stop().catch(() => {});
+    process.exit(0);
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
   return server;
 }
 

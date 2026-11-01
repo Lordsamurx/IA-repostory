@@ -6,12 +6,13 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build --config vite.worker.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "test": "node --test test/csv.test.ts test/password.test.ts && npm test --prefix server",
+    "test": "node --test test/csv.test.ts test/password.test.ts && npm run build:worker && npm test --prefix server",
     "test:rls": "bash supabase/test-rls.sh",
-    "build:demo": "tsc -b && VITE_ROUTER=memory vite build --base=./ --outDir dist-demo"
+    "build:demo": "tsc -b && VITE_ROUTER=memory vite build --base=./ --outDir dist-demo",
+    "build:worker": "vite build --config vite.worker.config.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

@@ -62,7 +62,7 @@ interface Actions {
     opts?: { kind?: MessageKind; author?: string; fileName?: string; fileData?: string; replyTo?: string; forwarded?: boolean; mentions?: string[]; raw?: boolean },
   ) => void;
   requestNps: (conversationId: string) => void;
-  receiveMessage: (conversationId: string, body: string, kind?: MessageKind) => void;
+  receiveMessage: (conversationId: string, body: string, kind?: MessageKind, extra?: Pick<Message, 'externalId'>) => void;
   markRead: (conversationId: string) => void;
   assign: (conversationId: string, userId: string | undefined) => void;
   setConversationStatus: (conversationId: string, status: ConversationStatus) => void;
@@ -76,6 +76,8 @@ interface Actions {
 }
 
 export type Store = DataState & SessionState & Actions;
+
+const noStorage = { getItem: () => null, setItem: () => undefined, removeItem: () => undefined };
 
 const sysMsg = (conversationId: string, body: string): Message => ({
   id: uid('msg-'),
@@ -243,13 +245,15 @@ export const useStore = create<Store>()(
                 },
           ),
         }));
-        if (!isNote) {
+        // conexão real: quem confirma a entrega é o WhatsApp (via servidor)
+        const real = Boolean(s.connections.find((c) => c.id === conv.connectionId)?.instance);
+        if (!isNote && !real) {
           // simula o ciclo de entrega do WhatsApp (✓ → ✓✓ → ✓✓ azul)
           setTimeout(() => get().update('messages', msg.id, { status: 'delivered' }), 900);
         }
       },
 
-      receiveMessage: (conversationId, body, kind = 'text') => {
+      receiveMessage: (conversationId, body, kind = 'text', extra = {}) => {
         const s = get();
         const conv = s.conversations.find((c) => c.id === conversationId);
         if (!conv) return;
@@ -263,6 +267,7 @@ export const useStore = create<Store>()(
           createdAt: nowIso(),
           status: 'read',
           fileName: kind === 'document' ? body : undefined,
+          ...(extra.externalId ? { externalId: extra.externalId } : {}),
         };
         set((st) => ({
           messages: [
@@ -359,7 +364,8 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'leadflow-crm-v1',
-      storage: createJSONStorage(() => localStorage),
+      // No servidor (worker) não há navegador: nada é guardado localmente
+      storage: createJSONStorage(() => (typeof window === 'undefined' ? noStorage : localStorage)),
       // Dados salvos por versões anteriores ganham as configurações novas com valor padrão
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Store>;

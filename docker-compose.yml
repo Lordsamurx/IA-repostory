@@ -1,5 +1,10 @@
 # LeadFlow CRM — produção (VPS)
 # Sobe com: docker compose up -d --build
+#
+# A Evolution API (WhatsApp por QR Code) é opcional e fica no perfil "evolution":
+#  - Evolution em outro servidor: preencha EVOLUTION_API_URL/EVOLUTION_API_KEY no .env e pronto.
+#  - Evolution nesta VPS: COMPOSE_PROFILES=evolution no .env (o SETUP-KIT/whatsapp.sh faz isso).
+#    Ela fica só na rede interna do Docker: nenhuma porta é aberta para a internet.
 x-hardening: &hardening
   restart: unless-stopped
   security_opt:
@@ -29,7 +34,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    mem_limit: 512m
+    mem_limit: 768m
     pids_limit: 256
 
   # Caddy emite e renova o certificado HTTPS automaticamente para o seu domínio
@@ -55,6 +60,59 @@ services:
     depends_on:
       - app
 
+  # ---------------------------------------------------------------- opcional: Evolution API nesta VPS
+  evolution:
+    profiles: ['evolution']
+    # versão fixa: troque por uma tag mais nova só depois de testar (EVOLUTION_IMAGE no .env)
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.1.1}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    environment:
+      SERVER_URL: http://evolution:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DEL_INSTANCE: 'false'
+      DATABASE_ENABLED: 'true'
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD}@evolution-db:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: leadflow
+      DATABASE_SAVE_DATA_INSTANCE: 'true'
+      DATABASE_SAVE_DATA_NEW_MESSAGE: 'false'
+      DATABASE_SAVE_MESSAGE_UPDATE: 'false'
+      DATABASE_SAVE_DATA_CONTACTS: 'false'
+      DATABASE_SAVE_DATA_CHATS: 'false'
+      CACHE_REDIS_ENABLED: 'false'
+      CACHE_LOCAL_ENABLED: 'true'
+      LOG_LEVEL: ERROR,WARN
+    expose:
+      - '8080'
+    volumes:
+      - evolution_instances:/evolution/instances
+    mem_limit: 768m
+    depends_on:
+      - evolution-db
+
+  evolution-db:
+    profiles: ['evolution']
+    image: postgres:16-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_db:/var/lib/postgresql/data
+    mem_limit: 256m
+
 volumes:
   caddy_data:
   caddy_config:
+  evolution_instances:
+  evolution_db:

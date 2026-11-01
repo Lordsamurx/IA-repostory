@@ -1,9 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, Pencil, Plug, Plus, QrCode, RefreshCw, Server, ShieldCheck, Smartphone, Trash2, Unplug, XCircle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { Badge, Button, Card, Confirm, EmptyState, Field, Input, Modal, PageHeader, Select } from '../components/ui';
 import { cn, dateBR, formatPhone, nowIso, onlyDigits, pickColor, uid } from '../lib/utils';
 import type { Connection, ConnectionType } from '../types';
+import { apiPost, serverHealth, type WhatsappState } from '../lib/api';
+
+/** O servidor tem gateway de WhatsApp (Evolution) configurado? null = verificando. */
+function useGateway() {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    void serverHealth().then((h) => setOn(Boolean(h?.whatsapp)));
+  }, []);
+  return on;
+}
 
 const TYPE: Record<ConnectionType, { label: string; desc: string; icon: typeof QrCode }> = {
   qrcode: { label: 'QR Code', desc: 'Mais simples para começar. Igual ao WhatsApp Web.', icon: QrCode },
@@ -41,6 +51,26 @@ export default function Conexoes() {
   const [editing, setEditing] = useState<Connection | null>(null);
   const [qrFor, setQrFor] = useState<Connection | null>(null);
   const [deleting, setDeleting] = useState<Connection | null>(null);
+  const gateway = useGateway();
+
+  const disconnect = async (c: Connection) => {
+    if (c.instance && gateway) {
+      try {
+        await apiPost<WhatsappState>('/api/whatsapp/disconnect', { connectionId: c.id });
+      } catch (e) {
+        return toast(`Não foi possível desconectar: ${(e as Error).message}`, 'error');
+      }
+    }
+    update('connections', c.id, { status: 'desconectado' });
+    toast('WhatsApp desconectado', 'info');
+  };
+
+  const removeConnection = async (c: Connection) => {
+    // o número sai do gateway também (senão continuaria recebendo mensagens)
+    if (c.instance && gateway) await apiPost('/api/whatsapp/disconnect', { connectionId: c.id }).catch(() => undefined);
+    remove('connections', c.id);
+    toast('Conexão excluída');
+  };
 
   return (
     <div>
@@ -89,7 +119,7 @@ export default function Conexoes() {
               </div>
               <div className={cn('flex gap-1.5', !isAdmin && 'hidden')}>
                 {c.status === 'conectado' ? (
-                  <Button variant="secondary" size="sm" icon={<Unplug className="h-4 w-4" />} onClick={() => (update('connections', c.id, { status: 'desconectado' }), toast('WhatsApp desconectado', 'info'))}>
+                  <Button variant="secondary" size="sm" icon={<Unplug className="h-4 w-4" />} onClick={() => void disconnect(c)}>
                     Desconectar
                   </Button>
                 ) : (
@@ -120,13 +150,13 @@ export default function Conexoes() {
 
       <NewConnectionModal open={creating} onClose={() => setCreating(false)} onQr={(c) => setQrFor(c)} />
       {editing && <EditConnectionModal connection={editing} onClose={() => setEditing(null)} />}
-      {qrFor && <QrModal connection={qrFor} onClose={() => setQrFor(null)} />}
+      {qrFor && (gateway && qrFor.type === 'qrcode' ? <RealQrModal connection={qrFor} onClose={() => setQrFor(null)} /> : <QrModal connection={qrFor} onClose={() => setQrFor(null)} />)}
       <Confirm
         open={Boolean(deleting)}
         onClose={() => setDeleting(null)}
         title="Excluir conexão?"
         text="O número deixa de receber mensagens no CRM. O histórico de conversas é mantido."
-        onConfirm={() => (deleting && remove('connections', deleting.id), toast('Conexão excluída'))}
+        onConfirm={() => void (deleting && removeConnection(deleting))}
       />
     </div>
   );
@@ -229,7 +259,7 @@ function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: (
             <Field
               label={type === 'api_oficial' ? 'Token de acesso permanente' : 'Token / API key do provedor'}
               className="sm:col-span-2"
-              hint="Nesta versão o token só é conferido aqui e não é salvo: o envio real pelo WhatsApp ainda não está ligado (veja docs/WHATSAPP.md)."
+              hint="Nesta versão o envio real funciona pela conexão QR Code (Evolution API). Para API oficial e parceiros o token só é conferido aqui e não é salvo (veja docs/WHATSAPP.md)."
             >
               <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
             </Field>
@@ -387,6 +417,94 @@ function QrModal({ connection, onClose }: { connection: Connection; onClose: () 
               </Button>
             </div>
           </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** QR Code real gerado pela Evolution API no servidor. Fecha sozinho quando o celular conecta. */
+function RealQrModal({ connection, onClose }: { connection: Connection; onClose: () => void }) {
+  const { update, toast } = useStore.getState();
+  const [qr, setQr] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let polls = 0;
+    const done = () => {
+      update('connections', connection.id, { status: 'conectado' });
+      toast('WhatsApp conectado! Envie uma mensagem de outro número para testar.');
+      onClose();
+    };
+    const poll = async () => {
+      if (!alive) return;
+      polls++;
+      try {
+        // o QR do WhatsApp expira: pede um novo a cada ~30 s
+        const r = await apiPost<WhatsappState>('/api/whatsapp/status', { connectionId: connection.id, qr: polls % 10 === 0 });
+        if (!alive) return;
+        if (r.state === 'open') return done();
+        if (r.qr?.base64) setQr(r.qr.base64);
+      } catch {
+        /* falha momentânea: tenta de novo */
+      }
+      timer = setTimeout(poll, 3000);
+    };
+    setError(null);
+    setQr(null);
+    apiPost<WhatsappState>('/api/whatsapp/connect', { connectionId: connection.id })
+      .then((r) => {
+        if (!alive) return;
+        update('connections', connection.id, { instance: r.instance, status: r.state === 'open' ? 'conectado' : 'aguardando_qr' });
+        if (r.state === 'open') return done();
+        setQr(r.qr?.base64 || null);
+        timer = setTimeout(poll, 3000);
+      })
+      .catch((e: Error) => alive && setError(e.message));
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [connection.id, attempt]);
+
+  return (
+    <Modal open onClose={onClose} title={`Conectar “${connection.name}”`} size="lg">
+      <div className="grid gap-6 sm:grid-cols-[auto_1fr]">
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex h-60 w-60 items-center justify-center rounded-2xl border border-line p-2">
+            {error ? (
+              <XCircle className="h-8 w-8 text-critical" />
+            ) : qr ? (
+              <img src={qr} alt="QR Code de conexão do WhatsApp" className="h-56 w-56" />
+            ) : (
+              <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
+            )}
+          </div>
+          <button className="flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink" onClick={() => setAttempt((n) => n + 1)}>
+            <RefreshCw className="h-3.5 w-3.5" /> Gerar novo QR
+          </button>
+        </div>
+        <div>
+          <ol className="space-y-3 text-[13.5px]">
+            {['Abra o WhatsApp no celular do atendimento', 'Toque em Mais opções (⋮) ou Configurações', 'Toque em Aparelhos conectados → Conectar um aparelho', 'Aponte a câmera para este QR Code'].map((t, i) => (
+              <li key={t} className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[12px] font-semibold text-brand-700">{i + 1}</span>
+                {t}
+              </li>
+            ))}
+          </ol>
+          {error ? (
+            <div className="mt-5 rounded-xl border border-[#f7cfcf] bg-[#fdf3f3] p-3 text-[12.5px] text-[#7a2020]">
+              <b>Não foi possível gerar o QR:</b> {error}. Confira EVOLUTION_API_URL, EVOLUTION_API_KEY e WHATSAPP_WEBHOOK_TOKEN no .env do servidor.
+            </div>
+          ) : (
+            <p className="mt-5 flex items-center gap-2 text-[12.5px] text-ink-3">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Aguardando a leitura… esta janela fecha sozinha quando o celular conectar.
+            </p>
+          )}
         </div>
       </div>
     </Modal>
