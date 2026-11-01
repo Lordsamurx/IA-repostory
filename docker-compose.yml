@@ -48,13 +48,19 @@ services:
     tmpfs:
       - /tmp
     mem_limit: 256m
+    # PUBLIC_BIND: IP público da VPS quando outro serviço já usa a 443 em outra interface
+    # (ex.: Tailscale serve na tailnet). O install.sh detecta e preenche sozinho.
     ports:
-      - '80:80'
-      - '443:443'
+      - '${PUBLIC_BIND:-0.0.0.0}:80:80'
+      - '${PUBLIC_BIND:-0.0.0.0}:443:443'
     environment:
       DOMAIN: ${DOMAIN}
+    # sites extras (SETUP-KIT/sites) podem apontar para serviços do próprio host
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./SETUP-KIT/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./SETUP-KIT/sites:/etc/caddy/sites:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

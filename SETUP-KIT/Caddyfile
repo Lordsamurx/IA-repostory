@@ -8,3 +8,7 @@
 		-Server
 	}
 }
+
+# Outros sites desta VPS atrás do mesmo Caddy (um arquivo .caddy por site).
+# Exemplo: SETUP-KIT/sites/olx-webhook.caddy.exemplo. Pasta vazia = só o CRM.
+import /etc/caddy/sites/*.caddy

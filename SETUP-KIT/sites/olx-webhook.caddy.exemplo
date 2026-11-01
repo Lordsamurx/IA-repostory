@@ -1,0 +1,17 @@
+# Exemplo: webhook da OLX (serviço hermes-olx na porta 8090 da VPS) atrás do mesmo Caddy do CRM.
+#
+# Para ativar:
+#  1. Copie para SETUP-KIT/sites/olx-webhook.caddy (precisa terminar em .caddy).
+#  2. Troque o domínio e os IPs abaixo pelos publicados pela OLX.
+#  3. Libere a rede do Docker para a porta 8090 do host (ver docs/WHATSAPP.md → "VPS compartilhada").
+#  4. docker compose up -d caddy
+#
+# O certificado HTTPS do domínio é emitido sozinho, como o do CRM.
+olx.seudominio.com.br {
+	# só a OLX chama este endereço; qualquer outro IP recebe 403
+	@olx remote_ip 203.0.113.10/32 203.0.113.11/32
+	handle @olx {
+		reverse_proxy host.docker.internal:8090
+	}
+	respond 403
+}

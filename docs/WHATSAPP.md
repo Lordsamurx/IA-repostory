@@ -56,6 +56,21 @@ Na opção 2, a Evolution e o banco dela ficam **só na rede interna do Docker**
 | `WHATSAPP_WEBHOOK_URL` | Endereço que a Evolution chama. Padrão: `https://$DOMAIN/api/whatsapp/webhook` |
 | `EVOLUTION_IMAGE` | Só na opção 2: imagem da Evolution (padrão fixo `evoapicloud/evolution-api:v2.1.1`) |
 
+## VPS compartilhada (Hermes, Tailscale, outros serviços)
+
+O CRM pode dividir a VPS com outros sistemas. O Caddy do CRM vira o único "porteiro" das portas 80/443 públicas e encaminha cada domínio para o serviço certo.
+
+- **Tailscale na 443:** com `tailscale serve` (painel do Hermes, por exemplo), a 443 da tailnet já está ocupada e o Docker não consegue ligar em `0.0.0.0:443`. O `install.sh` detecta isso e grava `PUBLIC_BIND=<IP público>` no `.env`: o Caddy liga só no IP público e o painel continua na tailnet.
+- **Outros sites no mesmo Caddy:** um arquivo `.caddy` por site em `SETUP-KIT/sites/`. Pasta vazia = só o CRM. Há um exemplo pronto para o webhook da OLX (`olx-webhook.caddy.exemplo`), com acesso só pelos IPs da OLX.
+- **Serviço que roda direto na VPS** (fora do Docker, como o `hermes-olx` na 8090): o Caddy chega nele por `host.docker.internal`. O ufw bloqueia por padrão o tráfego da rede do Docker para o host, então libere só a porta do serviço:
+
+  ```bash
+  REDE=$(docker network inspect crm_default -f '{{.Id}}' | cut -c1-12)
+  sudo ufw allow in on br-$REDE to any port 8090 proto tcp comment 'Caddy do CRM -> hermes-olx'
+  ```
+
+- **Firewall:** portas publicadas pelo Docker (80/443 do Caddy) ficam abertas mesmo com o ufw negando entrada. O instalador também libera 80/443 no ufw. Nada além disso é aberto (a Evolution local fica só na rede interna).
+
 ## VPS com EasyPanel (Hostinger)
 
 O instalador usa o próprio **Caddy** nas portas 80/443. Se a VPS já tem EasyPanel (ou Coolify, Traefik, Nginx), essas portas estão ocupadas e o instalador avisa. Nesse caso há dois caminhos:

@@ -48,7 +48,9 @@ EOF
 c_step "1/7  Preparando o servidor"
 # ---------------------------------------------------------------------
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates git python3 unzip dnsutils gnupg >/dev/null
+apt-get install -y -qq curl ca-certificates git python3 unzip gnupg iproute2 >/dev/null
+# "dig" (só para conferir o DNS): o nome do pacote mudou nas versões novas do Ubuntu
+apt-get install -y -qq dnsutils >/dev/null 2>&1 || apt-get install -y -qq bind9-dnsutils >/dev/null 2>&1 || c_warn "dig não instalado: a checagem de DNS será pulada"
 if ! command -v docker >/dev/null 2>&1; then
   # Repositório oficial do Docker com a chave GPG deles: o apt confere a assinatura
   # de cada pacote (mais seguro que executar um script baixado com curl | sh).
@@ -72,7 +74,9 @@ systemctl enable --now docker >/dev/null 2>&1 || true
 docker compose version >/dev/null 2>&1 || { c_err "Docker Compose não encontrado."; exit 1; }
 # Portas 80/443 precisam estar livres para o Caddy (HTTPS automático).
 # VPS com EasyPanel, Coolify, Traefik ou Nginx já ocupa essas portas: veja docs/WHATSAPP.md → "VPS com EasyPanel".
-BUSY="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:(80|443)$/ {print $NF}' | grep -v caddy || true)"
+# Endereços só da VPS (loopback, Tailscale) não atrapalham: nesse caso o Caddy liga só no IP público.
+BUSY="$(ss -ltnpH 2>/dev/null | awk '$4 ~ /:(80|443)$/ && $4 !~ /^(127\.|\[::1\]|100\.|\[fd7a:)/ && $4 !~ /tailscale/ {print $4, $NF}' | grep -v caddy || true)"
+SHARED_443="$(ss -ltnH 2>/dev/null | awk '$4 ~ /:(80|443)$/ && ($4 ~ /tailscale/ || $4 ~ /^100\./)' || true)"
 if [[ -n "$BUSY" ]]; then
   c_warn "As portas 80/443 já estão em uso nesta VPS:"
   echo "$BUSY"
@@ -188,8 +192,15 @@ ask KEEP_SR "Ligar a automação 24 h no servidor? (S/n)" "s"
 c_step "7/7  Subindo o CRM"
 # ---------------------------------------------------------------------
 umask 077
+# VPS compartilhada (ex.: Tailscale serve na 443 da tailnet): o Caddy liga só no IP público
+PUBLIC_BIND=""
+if [[ -n "$SHARED_443" ]]; then
+  PUBLIC_BIND="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')"
+  [[ -n "$PUBLIC_BIND" ]] && c_ok "Porta 443 compartilhada com o Tailscale: o CRM vai usar só o IP público $PUBLIC_BIND"
+fi
 cat > .env <<ENV
 DOMAIN=$DOMAIN
+PUBLIC_BIND=$PUBLIC_BIND
 VITE_SUPABASE_URL=$SUPABASE_URL
 VITE_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 AI_PROVIDER=$AI_PROVIDER
