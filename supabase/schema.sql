@@ -34,7 +34,7 @@ create index if not exists crm_records_conversation_idx
 -- ---------------------------------------------------------------------
 create or replace function public.crm_is_member()
 returns boolean
-language sql stable security definer set search_path = public
+language sql stable security definer set search_path = ''
 as $$
   select exists (
     select 1 from public.crm_records
@@ -44,7 +44,7 @@ $$;
 
 create or replace function public.crm_is_admin()
 returns boolean
-language sql stable security definer set search_path = public
+language sql stable security definer set search_path = ''
 as $$
   select exists (
     select 1 from public.crm_records
@@ -52,10 +52,20 @@ as $$
   );
 $$;
 
+-- Funções de segurança: só a sessão logada as executa (as políticas precisam delas).
+-- search_path vazio impede que um objeto criado num schema qualquer sequestre a função.
+revoke all on function public.crm_is_member() from public, anon;
+revoke all on function public.crm_is_admin() from public, anon;
+grant execute on function public.crm_is_member() to authenticated;
+grant execute on function public.crm_is_admin() to authenticated;
+
 -- ---------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------
 alter table public.crm_records enable row level security;
+-- O papel anônimo não acessa a tabela; a sessão logada só faz o que as políticas permitem.
+revoke all on public.crm_records from anon;
+grant select, insert, update, delete on public.crm_records to authenticated;
 
 drop policy if exists "equipe le"          on public.crm_records;
 drop policy if exists "equipe cria"        on public.crm_records;
@@ -97,7 +107,7 @@ create policy "equipe exclui" on public.crm_records
 -- ---------------------------------------------------------------------
 create or replace function public.crm_touch()
 returns trigger
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = ''
 as $$
 begin
   new.updated_at := now();
@@ -113,6 +123,9 @@ begin
   return new;
 end;
 $$;
+
+-- Gatilhos não são chamados pelo cliente
+revoke all on function public.crm_touch() from public, anon, authenticated;
 
 drop trigger if exists crm_records_touch on public.crm_records;
 create trigger crm_records_touch
