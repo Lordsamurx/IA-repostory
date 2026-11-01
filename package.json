@@ -9,6 +9,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "test": "node --test test/csv.test.ts && npm test --prefix server",
+    "test:rls": "bash supabase/test-rls.sh",
     "build:demo": "tsc -b && VITE_ROUTER=memory vite build --base=./ --outDir dist-demo"
   },
   "dependencies": {
