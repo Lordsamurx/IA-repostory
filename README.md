@@ -6,6 +6,12 @@ Projeto construído a partir do material _“Instale seu próprio CRM de WhatsAp
 
 > Visual inspirado em plataformas de atendimento como o ChatGuru: menu lateral escuro, lista de conversas com etiquetas coloridas, chat no estilo WhatsApp e painel do lead ao lado. O código e o design são originais.
 
+![Inbox](docs/img/inbox.png)
+
+| Funis (Kanban) | Análises |
+|---|---|
+| ![Funis](docs/img/funis.png) | ![Análises](docs/img/analises.png) |
+
 ---
 
 ## Módulos
