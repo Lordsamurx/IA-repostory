@@ -28,6 +28,11 @@ import type { Conversation, Message } from '../../types';
 
 const EMOJIS = ['😊', '😉', '😍', '🙏', '👍', '👏', '🎉', '💚', '💙', '✅', '📅', '📍', '💰', '🚗', '⏰', '🤝', '😅', '🙂', '🔥', '⭐'];
 
+/** Anexos: só estes tipos viram foto no chat (a imagem é guardada no próprio registro). */
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const MAX_IMAGE_BYTES = 1_500_000;
+const MAX_FILE_BYTES = 16 * 1024 * 1024;
+
 export default function ChatPanel({
   conversation: conv,
   onBack,
@@ -106,12 +111,15 @@ export default function ChatPanel({
 
   const onFile = (f: File | undefined) => {
     if (!f) return;
-    const kind = f.type.startsWith('image/') ? 'image' : f.type.startsWith('audio/') ? 'audio' : 'document';
-    if (kind === 'image' && f.size < 1_500_000) {
+    if (f.size > MAX_FILE_BYTES) return toast(`Arquivo muito grande (máximo de ${MAX_FILE_BYTES / 1_000_000} MB)`, 'error');
+    // só PNG, JPEG, GIF e WebP viram foto; qualquer outra coisa entra como documento
+    const isPhoto = IMAGE_TYPES.includes(f.type) && f.size <= MAX_IMAGE_BYTES;
+    if (isPhoto) {
       const reader = new FileReader();
       reader.onload = () => sendMessage(conv.id, String(reader.result), { kind: 'image', fileName: f.name });
       reader.readAsDataURL(f);
     } else {
+      const kind = f.type.startsWith('audio/') ? 'audio' : 'document';
       sendMessage(conv.id, f.name, { kind, fileName: f.name });
     }
   };
