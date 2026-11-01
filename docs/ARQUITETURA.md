@@ -72,11 +72,45 @@ a cada 15 s (no navegador de um admin): follow-ups vencidos, disparos agendados,
 
 ## Segurança
 
-- **RLS:** só quem está na coleção `users` lê ou grava. Uma conta criada fora do CRM não enxerga nada. Configurações, conexões e usuários exigem perfil admin. Um gatilho impede que um usuário altere o próprio perfil de acesso. Essas regras foram testadas em PostgreSQL 16 durante o desenvolvimento, simulando estranho, atendente e admin.
+### Banco (Supabase)
+
+- **RLS:** só quem está na coleção `users` lê ou grava. Uma conta criada fora do CRM não enxerga nada. Configurações, conexões e usuários exigem perfil admin. Um gatilho impede que um atendente altere o próprio perfil de acesso.
+- As funções `SECURITY DEFINER` têm `search_path` vazio e não são executáveis pelo papel anônimo. O papel `anon` não tem acesso à tabela.
+- `supabase/test-rls.sh` (`npm run test:rls`) sobe um PostgreSQL 16 temporário, aplica o schema duas vezes e confere 30 permissões de estranho, atendente, admin e anônimo.
 - A chave `service_role` é usada só pelo instalador e não fica salva.
-- A chave de IA fica só no servidor. Com o Supabase ativo, `/api/ai/reply` exige o token de um usuário logado. Sem o Supabase, aceita apenas chamadas de localhost.
-- Há limite de 60 respostas de IA por minuto por IP.
-- Senhas do modo local nunca vão para o banco nem para o backup.
+
+### Servidor (`server/index.mjs`)
+
+- **Cabeçalhos em todas as respostas:** CSP restrita (scripts e estilos só do próprio site, o React usa estilos inline; conexões só com o Supabase em `https`/`wss`; imagens só `data:`/`blob:`, então imagens remotas não carregam), `X-Frame-Options: DENY` com `frame-ancestors 'none'`, `Referrer-Policy`, `Permissions-Policy` (câmera, microfone, localização, pagamento e USB desligados), `X-Content-Type-Options: nosniff`. O Caddy acrescenta HSTS e remove o cabeçalho `Server`.
+- **Caminhos:** o arquivo pedido é resolvido dentro de `dist/`; caminhos com `..`, `%2e%2e`, barra invertida ou byte inválido não vazam arquivos e não derrubam o processo.
+- **Conexões lentas:** timeouts de cabeçalho (15 s) e de requisição (60 s).
+- **`/api/ai/reply`:**
+  - Exige `Content-Type: application/json`, aceita no máximo 256 KB e corta campos longos (prompt 8 mil caracteres, base de conhecimento 40 mil no total, histórico nas últimas 40 mensagens de até 4 mil caracteres).
+  - Com o Supabase ativo, a pessoa precisa ter um token válido **e** estar cadastrada na equipe (a mesma regra da RLS). O token é conferido com timeout de 5 s e fica em cache por 60 s, sem consultar o Supabase a cada mensagem.
+  - Erros do provedor viram mensagens genéricas; detalhes ficam só no log do servidor.
+  - Sem o Supabase, só aceita chamadas do próprio computador (desenvolvimento).
+- **Limite de uso:** 60 requisições por minuto por IP, contadas antes da autenticação. Atrás do Caddy, `TRUST_PROXY=1` faz o servidor ler o IP real do `X-Forwarded-For`, que o Caddy acrescenta no fim; sem isso, todos os usuários dividiriam um único limite. Só ligue `TRUST_PROXY` se houver exatamente um proxy confiável na frente.
+- **Prompt de sistema:** mensagens do cliente, nome, histórico, base de conhecimento e catálogo são tratados como dados, dentro de tags próprias. O agente não revela as instruções internas e respeita o desconto máximo, mesmo que o cliente diga que outra pessoa aprovou.
+- A chave de IA fica só no servidor e nunca aparece nas respostas.
+
+### Front-end
+
+- **Exportações CSV:** células que começam com `=`, `+`, `-`, `@`, tab ou CR recebem um apóstrofo antes de virar planilha (`src/lib/csv.ts`).
+- **Anexos no chat:** só PNG, JPEG, GIF e WebP viram foto (até 1,5 MB); outros tipos entram como documento; arquivos acima de 16 MB são recusados.
+- **Senhas do modo local:** guardadas como hash PBKDF2-HMAC-SHA256 (600 mil iterações, salt aleatório), em `src/lib/password.ts`. Contas antigas com senha em texto puro são migradas no primeiro login. O login demo (`admin@demo.com`) continua com a senha pública `demo123`. Senhas nunca vão para o banco nem para o backup.
+
+### Infraestrutura
+
+- `docker-compose.yml`: `no-new-privileges`, `cap_drop: ALL` (o Caddy recebe só `NET_BIND_SERVICE`), sistema de arquivos somente leitura com `tmpfs` em `/tmp`, limites de memória e de processos, rotação de logs.
+- O app roda como usuário `node` (Dockerfile). Testes e documentação não entram na imagem.
+
+### Limitações conhecidas
+
+- **Prompt injection não tem solução completa.** As instruções de defesa reduzem o risco, mas o modelo pode seguir um pedido malicioso. A única ação que a resposta do modelo consegue disparar é transferir a conversa para a fila humana (`[TRANSFERIR]`). Ele não acessa o banco, outras conversas nem as configurações.
+- **Estilos inline:** a CSP usa `style-src 'unsafe-inline'` porque o React define `style=""` em tempo de execução. Scripts continuam restritos a `'self'`.
+- **Modo local sem HTTPS:** o hash de senha precisa de `crypto.subtle`, que só existe em HTTPS ou `localhost`. Fora disso, login e cadastro mostram aviso em vez de gravar a senha sem proteção.
+- **Revogação de acesso:** quem foi removido da equipe pode continuar usando a IA por até 60 s (tempo do cache de token).
+- **Risco de banimento no WhatsApp:** conexões não oficiais (QR Code de gateways) e envio em massa são o principal risco da operação. O envio em massa usa intervalo com variação aleatória de ±30%, mas isso não elimina o risco. A Cloud API oficial exige opt-in dos contatos.
 
 ## Escala e confiabilidade
 

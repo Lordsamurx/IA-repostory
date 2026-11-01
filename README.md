@@ -117,7 +117,10 @@ src/
     metrics.ts        cálculos das análises
   data/seed.ts        dados de demonstração e base vazia
 server/index.mjs      API (IA) + serve a interface em produção
+server/test/          testes da API (node --test)
 supabase/schema.sql   tabela, RLS e Realtime
+supabase/test-rls.sh  teste do RLS em PostgreSQL 16 temporário
+test/                 testes unitários do front (CSV, hash de senha)
 SETUP-KIT/            instalador e Caddyfile
 docs/                 arquitetura, design system, WhatsApp
 ```
@@ -127,6 +130,20 @@ Leia também:
 - [docs/ARQUITETURA.md](docs/ARQUITETURA.md): componentes, fluxo de dados, segurança e decisões.
 - [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md): tokens, componentes e paleta dos gráficos.
 - [docs/WHATSAPP.md](docs/WHATSAPP.md): como ligar um gateway real de WhatsApp.
+
+## Testes
+
+Pré-requisitos: Node 22 e as dependências instaladas (`npm ci` na raiz e em `server/`). O teste de RLS também precisa do PostgreSQL 16 (o script usa `/usr/lib/postgresql/16/bin`, ou o caminho em `PGBIN`).
+
+```bash
+npm run typecheck      # tipos do front (tsc -b)
+npm test               # 64 testes: CSV, hash de senha e API do servidor
+npm run test:rls       # RLS em PostgreSQL 16 temporário (porta 5499; apaga tudo ao final)
+npm run build          # verificação completa de build
+```
+
+- Os testes da API sobem o servidor em porta aleatória e usam servidores falsos da Anthropic e do Supabase. Nenhuma chave real é usada e nenhuma chamada sai da máquina.
+- `npm run test:rls` aplica `supabase/schema.sql` duas vezes e confere o que estranho, atendente, admin e o papel anônimo podem fazer. Sai com código de erro se alguma verificação falhar.
 
 ---
 
