@@ -11,8 +11,8 @@ import {
   type Settings,
   type User,
 } from '../types';
-import { type CollectionName, type DataState, demoState, emptyState } from '../data/seed';
-import { firstName, fillTemplate, nowIso, pickColor, uid } from '../lib/utils';
+import { type CollectionName, type DataState, DEFAULT_SETTINGS, demoState, emptyState } from '../data/seed';
+import { fieldVar, firstName, fillTemplate, nowIso, pickColor, uid } from '../lib/utils';
 import { checkAccountPassword, hashPassword } from '../lib/password';
 import { isSupabaseMode } from '../lib/supabase';
 
@@ -56,7 +56,12 @@ interface Actions {
 
   // atendimento
   startConversation: (contactId: string, connectionId?: string) => string;
-  sendMessage: (conversationId: string, body: string, opts?: { kind?: MessageKind; author?: string; fileName?: string }) => void;
+  sendMessage: (
+    conversationId: string,
+    body: string,
+    opts?: { kind?: MessageKind; author?: string; fileName?: string; fileData?: string; replyTo?: string; forwarded?: boolean; mentions?: string[]; raw?: boolean },
+  ) => void;
+  requestNps: (conversationId: string) => void;
   receiveMessage: (conversationId: string, body: string, kind?: MessageKind) => void;
   markRead: (conversationId: string) => void;
   assign: (conversationId: string, userId: string | undefined) => void;
@@ -197,10 +202,10 @@ export const useStore = create<Store>()(
         const contact = s.contacts.find((c) => c.id === conv.contactId);
         const author = opts.author ?? s.sessionUserId ?? 'system';
         const isHuman = !(AUTOMATED_AUTHORS as readonly string[]).includes(author);
-        const text = fillTemplate(body, {
-          nome: contact ? firstName(contact.name) : '',
-          empresa: s.settings.companyName,
-        });
+        // Variáveis: {{nome}}, {{empresa}} e cada campo personalizado ({{convenio}}, ...)
+        const vars: Record<string, string> = { nome: contact ? firstName(contact.name) : '', empresa: s.settings.companyName };
+        for (const f of s.customFields) vars[fieldVar(f.name)] = contact?.customFields?.[f.id] ?? '';
+        const text = opts.raw ? body : fillTemplate(body, vars);
         const msg: Message = {
           id: uid('msg-'),
           conversationId,
@@ -211,6 +216,10 @@ export const useStore = create<Store>()(
           createdAt: nowIso(),
           status: 'sent',
           fileName: opts.fileName,
+          fileData: opts.fileData,
+          replyTo: opts.replyTo,
+          forwarded: opts.forwarded,
+          mentions: opts.mentions?.length ? opts.mentions : undefined,
         };
         const isNote = msg.kind === 'note';
         set((st) => ({
@@ -308,6 +317,18 @@ export const useStore = create<Store>()(
         const label = status === 'finalizado' ? 'Atendimento finalizado' : status === 'aguardando' ? 'Conversa reaberta' : 'Atendimento iniciado';
         const who = s.users.find((u) => u.id === s.sessionUserId)?.name;
         s.add('messages', sysMsg(conversationId, who ? `${label} por ${who}` : label));
+        // Pesquisa de satisfação automática ao finalizar (só se o cliente chegou a escrever)
+        const { nps } = s.settings;
+        if (status === 'finalizado' && nps?.enabled && nps.autoOnFinish && s.messages.some((m) => m.conversationId === conversationId && m.direction === 'in')) {
+          get().requestNps(conversationId);
+        }
+      },
+
+      requestNps: (conversationId) => {
+        const s = get();
+        if (!s.settings.nps?.enabled) return;
+        s.sendMessage(conversationId, s.settings.nps.question, { author: 'nps' });
+        get().update('conversations', conversationId, { npsPending: true });
       },
 
       transfer: (conversationId, departmentId, userId) => {
@@ -339,6 +360,11 @@ export const useStore = create<Store>()(
     {
       name: 'leadflow-crm-v1',
       storage: createJSONStorage(() => localStorage),
+      // Dados salvos por versões anteriores ganham as configurações novas com valor padrão
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<Store>;
+        return { ...current, ...p, settings: { ...DEFAULT_SETTINGS, ...current.settings, ...p.settings } };
+      },
       // No modo Supabase só a sessão fica local; os dados vêm do banco.
       partialize: (s) => {
         if (isSupabaseMode) return { sessionUserId: s.sessionUserId } as Partial<Store>;

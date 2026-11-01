@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, FileText, Image as ImageIcon, Mic, MessageSquarePlus, MessagesSquare, Pin, StickyNote, Zap } from 'lucide-react';
+import { Bot, FileText, Star, Image as ImageIcon, Mic, MessageSquarePlus, MessagesSquare, Pin, StickyNote, Zap } from 'lucide-react';
 import { useMe, useStore } from '../store/useStore';
-import { Avatar, Button, EmptyState, Menu, MenuItem, SearchInput, Select, TagChip } from '../components/ui';
+import { Avatar, Button, EmptyState, Menu, MenuItem, SearchInput, TagChip } from '../components/ui';
 import { chatTime, cn, normalize, onlyDigits } from '../lib/utils';
 import { simulateIncomingLead } from '../lib/automation';
 import ChatPanel from '../components/inbox/ChatPanel';
 import ContactPanel from '../components/inbox/ContactPanel';
 import NewConversationModal from '../components/inbox/NewConversationModal';
+import InboxFilters, { EMPTY_FILTERS, type ChatFilters } from '../components/inbox/InboxFilters';
 import type { Conversation, LeadSource } from '../types';
 
 type Filter = 'meus' | 'fila' | 'todos' | 'finalizados';
@@ -27,8 +28,9 @@ export default function Inbox() {
 
   const [filter, setFilter] = useState<Filter>('todos');
   const [query, setQuery] = useState('');
-  const [connFilter, setConnFilter] = useState('');
-  const [tagFilter, setTagFilter] = useState('');
+  const [filters, setFilters] = useState<ChatFilters>(EMPTY_FILTERS);
+  const deals = useStore((s) => s.deals);
+  const scheduled = useStore((s) => s.scheduled);
   const [showContact, setShowContact] = useState(true);
   const [newOpen, setNewOpen] = useState(false);
 
@@ -53,17 +55,34 @@ export default function Inbox() {
       if (filter === 'fila' && c.status !== 'aguardando') return false;
       if (filter === 'todos' && c.status === 'finalizado') return false;
       if (filter === 'finalizados' && c.status !== 'finalizado') return false;
-      if (connFilter && c.connectionId !== connFilter) return false;
+      const f = filters;
+      if (f.connectionId && c.connectionId !== f.connectionId) return false;
       const ct = contactById.get(c.contactId);
-      if (tagFilter && !ct?.tagIds.includes(tagFilter)) return false;
+      if (f.tagIds.length) {
+        const has = (id: string) => Boolean(ct?.tagIds.includes(id));
+        if (f.tagMode === 'qualquer' && !f.tagIds.some(has)) return false;
+        if (f.tagMode === 'todas' && !f.tagIds.every(has)) return false;
+        if (f.tagMode === 'nao_tem' && f.tagIds.some(has)) return false;
+      }
+      if (f.responsible === 'none' && c.assigneeId) return false;
+      if (f.responsible.startsWith('u:') && c.assigneeId !== f.responsible.slice(2)) return false;
+      if (f.responsible.startsWith('d:') && c.departmentId !== f.responsible.slice(2)) return false;
+      if (f.stageId && !deals.some((d) => d.contactId === c.contactId && d.stageId === f.stageId && d.status === 'aberto')) return false;
+      if (f.unread && c.unread === 0) return false;
+      if (f.favorites && !(me && c.favoriteBy?.includes(me.id))) return false;
+      if (f.scheduled && !scheduled.some((m) => m.conversationId === c.id && m.status === 'pendente')) return false;
       if (q) {
         const hay = normalize(`${ct?.name} ${ct?.phone} ${lastMsg.get(c.id)?.body ?? ''}`);
         if (!hay.includes(q) && !(onlyDigits(q) && ct?.phone.includes(onlyDigits(q)))) return false;
       }
       return true;
     };
-    return conversations.filter(match).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastMessageAt.localeCompare(a.lastMessageAt));
-  }, [conversations, filter, query, connFilter, tagFilter, me?.id, contactById, lastMsg]);
+    const byDate = (a: Conversation, b: Conversation) =>
+      filters.sort === 'antigas' ? a.lastMessageAt.localeCompare(b.lastMessageAt) : b.lastMessageAt.localeCompare(a.lastMessageAt);
+    return conversations
+      .filter(match)
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || (filters.sort === 'nao_lidas' ? Number(b.unread > 0) - Number(a.unread > 0) : 0) || byDate(a, b));
+  }, [conversations, filter, query, filters, deals, scheduled, me, contactById, lastMsg]);
 
   const active = conversations.find((c) => c.id === conversationId);
 
@@ -159,24 +178,7 @@ export default function Inbox() {
 
         <div className="space-y-2 px-4 pb-3">
           <SearchInput placeholder="Buscar nome, telefone ou mensagem" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <div className="flex gap-2">
-            <Select value={connFilter} onChange={(e) => setConnFilter(e.target.value)} className="h-8 text-[12px]" aria-label="Filtrar por conexão">
-              <option value="">Todas as conexões</option>
-              {connections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-            <Select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="h-8 text-[12px]" aria-label="Filtrar por etiqueta">
-              <option value="">Todas as etiquetas</option>
-              {tags.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <InboxFilters value={filters} onChange={setFilters} />
         </div>
 
         <div className="flex border-b border-line px-2" role="tablist">
@@ -224,6 +226,7 @@ export default function Inbox() {
                   <div className="flex items-center gap-1.5">
                     <span className={cn('truncate text-[14px]', c.unread ? 'font-semibold' : 'font-medium')}>{ct?.name ?? 'Contato removido'}</span>
                     {c.pinned && <Pin className="h-3 w-3 shrink-0 text-ink-3" />}
+                    {me && c.favoriteBy?.includes(me.id) && <Star className="h-3 w-3 shrink-0 fill-[#eda100] text-[#eda100]" />}
                     <span className={cn('ml-auto shrink-0 text-[11px]', c.unread ? 'font-semibold text-brand-600' : 'text-ink-3')}>{chatTime(c.lastMessageAt)}</span>
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[13px] text-ink-2">

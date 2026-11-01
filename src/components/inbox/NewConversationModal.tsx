@@ -5,7 +5,9 @@ import { formatPhone, normalize, onlyDigits } from '../../lib/utils';
 
 export default function NewConversationModal({ open, onClose, onCreated, contactId }: { open: boolean; onClose: () => void; onCreated: (id: string) => void; contactId?: string }) {
   const contacts = useStore((s) => s.contacts);
-  const connections = useStore((s) => s.connections);
+  const me = useStore((s) => s.sessionUserId);
+  // números com restrição só aparecem para quem tem permissão de iniciar conversa
+  const connections = useStore((s) => s.connections).filter((c) => !c.allowedUserIds?.length || (me && c.allowedUserIds.includes(me)));
   const { createContact, startConversation, sendMessage } = useStore.getState();
 
   const [mode, setMode] = useState<'existente' | 'novo'>('existente');

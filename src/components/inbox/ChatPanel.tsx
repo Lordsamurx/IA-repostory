@@ -7,7 +7,18 @@ import {
   CheckCheck,
   CheckCircle2,
   Clock,
+  CornerUpLeft,
+  Eraser,
   FileText,
+  Forward,
+  FolderOpen,
+  Laptop,
+  MailWarning,
+  PencilLine,
+  Star,
+  ThumbsUp,
+  Workflow,
+  X,
   MoreVertical,
   Paperclip,
   PanelRightClose,
@@ -22,8 +33,10 @@ import {
   Zap,
 } from 'lucide-react';
 import { useMe, useStore } from '../../store/useStore';
-import { Avatar, Button, Field, IconButton, Input, Menu, MenuItem, Modal, Select, Switch, Textarea } from '../ui';
-import { cn, dateTimeBR, dayLabel, formatPhone, nowIso, timeHM, uid } from '../../lib/utils';
+import { Avatar, Button, Confirm, Field, IconButton, Input, Menu, MenuItem, Modal, Select, Switch, Textarea } from '../ui';
+import { FileLibraryModal, ForwardModal, isImageMime } from './ChatModals';
+import { startFlow } from '../../lib/chatbot';
+import { cn, dateTimeBR, dayLabel, formatPhone, normalize, nowIso, timeHM, uid } from '../../lib/utils';
 import type { Conversation, Message } from '../../types';
 
 const EMOJIS = ['😊', '😉', '😍', '🙏', '👍', '👏', '🎉', '💚', '💙', '✅', '📅', '📍', '💰', '🚗', '⏰', '🤝', '😅', '🙂', '🔥', '⭐'];
@@ -55,6 +68,7 @@ export default function ChatPanel({
   const isTyping = useStore((s) => s.typing[conv.id]);
   const settings = useStore((s) => s.settings);
   const allScheduled = useStore((s) => s.scheduled);
+  const chatbots = useStore((s) => s.chatbots);
   const { sendMessage, receiveMessage, assign, setConversationStatus, transfer, setAI, update, toast } = useStore.getState();
 
   const messages = useMemo(() => allMessages.filter((m) => m.conversationId === conv.id), [allMessages, conv.id]);
@@ -67,6 +81,14 @@ export default function ChatPanel({
   const [qrIndex, setQrIndex] = useState(0);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState('');
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [forwarding, setForwarding] = useState<Message | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [clearOpen, setClearOpen] = useState(false);
+  const isFavorite = Boolean(me && conv.favoriteBy?.includes(me.id));
+  const byId = useMemo(() => new Map(allMessages.map((m) => [m.id, m])), [allMessages]);
   const scheduled = useMemo(() => allScheduled.filter((m) => m.conversationId === conv.id && m.status === 'pendente'), [allScheduled, conv.id]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -86,7 +108,23 @@ export default function ChatPanel({
   const submit = () => {
     const body = text.trim();
     if (!body) return;
-    sendMessage(conv.id, body, { kind: mode });
+    // @menções em notas internas: avisa o colega mencionado
+    const mentions =
+      mode === 'note'
+        ? users.filter((u) => u.id !== me?.id && new RegExp(`@${normalize(u.name.split(' ')[0]!)}\\b`).test(normalize(body))).map((u) => u.id)
+        : [];
+    sendMessage(conv.id, body, { kind: mode, replyTo: replyTo?.id, mentions });
+    for (const uid_ of mentions)
+      useStore.getState().add('notifications', {
+        id: uid('ntf-'),
+        title: `${me?.name ?? 'Alguém'} mencionou você`,
+        body: `${contact?.name ?? 'Conversa'}: ${body.slice(0, 80)}`,
+        createdAt: nowIso(),
+        read: false,
+        link: `/inbox/${conv.id}`,
+        userId: uid_,
+      });
+    setReplyTo(null);
     setText('');
     setMode('text');
     inputRef.current?.focus();
@@ -143,8 +181,22 @@ export default function ChatPanel({
           <ArrowLeft className="h-5 w-5" />
         </IconButton>
         <Avatar name={contact?.name ?? '?'} color={contact?.color} size={38} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[14.5px] font-semibold">{contact?.name}</div>
+        <div className="min-w-[120px] flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[14.5px] font-semibold">{contact?.name}</span>
+            <button
+              aria-label={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'}
+              title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'}
+              onClick={() =>
+                me &&
+                update('conversations', conv.id, {
+                  favoriteBy: isFavorite ? (conv.favoriteBy ?? []).filter((x) => x !== me.id) : [...(conv.favoriteBy ?? []), me.id],
+                })
+              }
+            >
+              <Star className={cn('h-4 w-4', isFavorite ? 'fill-[#eda100] text-[#eda100]' : 'text-ink-3 hover:text-ink-2')} />
+            </button>
+          </div>
           <div className="flex items-center gap-1.5 truncate text-[12px] text-ink-3">
             {contact && formatPhone(contact.phone)}
             {connection && (
@@ -169,7 +221,8 @@ export default function ChatPanel({
               )}
             >
               <Bot className="h-4 w-4" />
-              {conv.aiEnabled ? (agent?.name.split('—')[0]?.trim() ?? 'IA ativa') : 'IA pausada'}
+              <span className="hidden 2xl:inline">{conv.aiEnabled ? (agent?.name.split('—')[0]?.trim() ?? 'IA ativa') : 'IA pausada'}</span>
+              <span className={cn('h-2 w-2 rounded-full 2xl:hidden', conv.aiEnabled ? 'bg-good' : 'bg-ink-3')} title={conv.aiEnabled ? 'IA ativa' : 'IA pausada'} />
             </button>
           )}
         >
@@ -194,8 +247,8 @@ export default function ChatPanel({
         </Menu>
 
         {!isFinished && conv.assigneeId !== me?.id && (
-          <Button size="sm" onClick={() => me && assign(conv.id, me.id)} icon={<UserPlus className="h-4 w-4" />}>
-            Assumir
+          <Button size="sm" title="Assumir atendimento" aria-label="Assumir atendimento" onClick={() => me && assign(conv.id, me.id)} icon={<UserPlus className="h-4 w-4" />}>
+            <span className="hidden 2xl:inline">Assumir</span>
           </Button>
         )}
         {isFinished ? (
@@ -241,8 +294,43 @@ export default function ChatPanel({
               <MenuItem icon={<Pin />} onClick={() => (update('conversations', conv.id, { pinned: !conv.pinned }), close())}>
                 {conv.pinned ? 'Desafixar' : 'Fixar no topo'}
               </MenuItem>
+              <MenuItem icon={<PencilLine />} onClick={() => (setNewName(contact?.name ?? ''), setRenameOpen(true), close())}>
+                Alterar nome do chat
+              </MenuItem>
+              <MenuItem
+                icon={<MailWarning />}
+                onClick={() => {
+                  update('conversations', conv.id, { unread: Math.max(1, conv.unread), lastMessageAt: nowIso() });
+                  close();
+                  onBack();
+                }}
+              >
+                Marcar como não lida
+              </MenuItem>
+              <MenuItem
+                icon={<ThumbsUp />}
+                onClick={() => {
+                  if (!settings.nps?.enabled) toast('Ative o NPS em Configurações → NPS', 'info');
+                  else {
+                    useStore.getState().requestNps(conv.id);
+                    toast('Pesquisa NPS enviada');
+                  }
+                  close();
+                }}
+              >
+                Solicitar NPS
+              </MenuItem>
+              <div className="flex items-center justify-between px-2.5 py-2 text-[13px]">
+                <span className="flex items-center gap-2">
+                  <Workflow className="h-4 w-4 text-ink-3" /> Chatbot nesta conversa
+                </span>
+                <Switch checked={!conv.botDisabled} label="Chatbot nesta conversa" onChange={(v) => update('conversations', conv.id, { botDisabled: !v, ...(v ? {} : { bot: undefined }) })} />
+              </div>
               <MenuItem icon={<Zap />} onClick={() => (setSimOpen(true), close())}>
                 Simular mensagem do cliente
+              </MenuItem>
+              <MenuItem icon={<Eraser />} danger onClick={() => (setClearOpen(true), close())}>
+                Apagar todas as mensagens
               </MenuItem>
             </>
           )}
@@ -260,7 +348,16 @@ export default function ChatPanel({
               <span className="rounded-lg bg-white/95 px-3 py-1 text-[11.5px] font-medium text-ink-2 capitalize shadow-sm">{g.day}</span>
             </div>
             {g.items.map((m, i) => (
-              <Bubble key={m.id} m={m} prev={g.items[i - 1]} users={users} agentName={agent?.name} />
+              <Bubble
+                key={m.id}
+                m={m}
+                prev={g.items[i - 1]}
+                users={users}
+                agentName={agent?.name}
+                quoted={m.replyTo ? byId.get(m.replyTo) : undefined}
+                onReply={isFinished ? undefined : () => (setReplyTo(m), inputRef.current?.focus())}
+                onForward={() => setForwarding(m)}
+              />
             ))}
           </Fragment>
         ))}
@@ -312,11 +409,31 @@ export default function ChatPanel({
               <Clock className="h-3.5 w-3.5 shrink-0 text-brand-600" />
               <span className="shrink-0 font-medium">Agendada para {dateTimeBR(m.sendAt)}:</span>
               <span className="min-w-0 flex-1 truncate text-ink-2">{m.body}</span>
+              <button
+                className="shrink-0 font-medium text-brand-700 hover:underline"
+                onClick={() => {
+                  update('scheduled', m.id, { status: 'enviada' });
+                  sendMessage(conv.id, m.body);
+                }}
+              >
+                Enviar agora
+              </button>
               <button className="shrink-0 font-medium text-critical hover:underline" onClick={() => update('scheduled', m.id, { status: 'cancelada' })}>
                 Cancelar
               </button>
             </div>
           ))}
+          {replyTo && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg border-l-4 border-brand-500 bg-canvas px-3 py-1.5 text-[12.5px]">
+              <CornerUpLeft className="h-3.5 w-3.5 shrink-0 text-brand-600" />
+              <span className="min-w-0 flex-1 truncate text-ink-2">
+                <b className="text-ink">{replyTo.direction === 'in' ? contact?.name : 'Você'}:</b> {replyTo.kind === 'image' ? '🖼️ Imagem' : replyTo.fileName ?? replyTo.body}
+              </span>
+              <button aria-label="Cancelar resposta" onClick={() => setReplyTo(null)} className="text-ink-3 hover:text-ink">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <div className="mb-1.5 flex gap-1">
             {(['text', 'note'] as const).map((m) => (
               <button
@@ -376,9 +493,56 @@ export default function ChatPanel({
             <IconButton label="Emojis" onClick={() => setEmojiOpen((v) => !v)}>
               <Smile className="h-5 w-5" />
             </IconButton>
-            <IconButton label="Anexar arquivo" onClick={() => fileRef.current?.click()} disabled={mode === 'note'}>
-              <Paperclip className="h-5 w-5" />
-            </IconButton>
+            <Menu
+              align="left"
+              side="top"
+              width={230}
+              trigger={(t) => (
+                <IconButton label="Anexar arquivo" onClick={t} disabled={mode === 'note'}>
+                  <Paperclip className="h-5 w-5" />
+                </IconButton>
+              )}
+            >
+              {(close) => (
+                <div>
+                  <MenuItem icon={<FolderOpen />} onClick={() => (setLibraryOpen(true), close())}>
+                    Da biblioteca de arquivos
+                  </MenuItem>
+                  <MenuItem icon={<Laptop />} onClick={() => (fileRef.current?.click(), close())}>
+                    Do computador
+                  </MenuItem>
+                </div>
+              )}
+            </Menu>
+            <Menu
+              align="left"
+              side="top"
+              width={260}
+              trigger={(t) => (
+                <IconButton label="Acionar fluxo do chatbot" onClick={t} disabled={mode === 'note' || chatbots.length === 0}>
+                  <Workflow className="h-5 w-5" />
+                </IconButton>
+              )}
+            >
+              {(close) => (
+                <div>
+                  <div className="px-2.5 py-1.5 text-[11px] text-ink-3">Envia o menu do fluxo para este cliente agora:</div>
+                  {chatbots.map((f) => (
+                    <MenuItem
+                      key={f.id}
+                      icon={<Workflow />}
+                      onClick={() => {
+                        startFlow(conv, f);
+                        toast(`Fluxo "${f.name}" acionado`);
+                        close();
+                      }}
+                    >
+                      {f.name}
+                    </MenuItem>
+                  ))}
+                </div>
+              )}
+            </Menu>
             <IconButton
               label="Agendar mensagem"
               disabled={mode === 'note' || !text.trim()}
@@ -488,6 +652,46 @@ export default function ChatPanel({
         <Textarea rows={3} autoFocus value={simText} onChange={(e) => setSimText(e.target.value)} placeholder="Ex.: Qual o endereço de vocês?" />
       </Modal>
 
+      <FileLibraryModal
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        onPick={(f) =>
+          sendMessage(conv.id, isImageMime(f.mime) ? f.data : f.name, { kind: isImageMime(f.mime) ? 'image' : 'document', fileName: f.name, fileData: f.data, raw: true })
+        }
+      />
+      <ForwardModal message={forwarding} onClose={() => setForwarding(null)} />
+      <Modal
+        open={renameOpen}
+        onClose={() => setRenameOpen(false)}
+        title="Alterar nome do chat"
+        size="sm"
+        footer={
+          <Button
+            disabled={!newName.trim()}
+            onClick={() => {
+              if (contact) update('contacts', contact.id, { name: newName.trim() });
+              setRenameOpen(false);
+              toast('Nome atualizado para toda a equipe');
+            }}
+          >
+            Salvar
+          </Button>
+        }
+      >
+        <Input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <p className="mt-2 text-[12px] text-ink-3">Muda o nome só no CRM, para todos os usuários. A agenda do celular não é alterada.</p>
+      </Modal>
+      <Confirm
+        open={clearOpen}
+        onClose={() => setClearOpen(false)}
+        title="Apagar todas as mensagens?"
+        text="Limpa o histórico desta conversa no CRM. O WhatsApp do celular não é afetado. Não dá para desfazer."
+        confirmLabel="Apagar"
+        onConfirm={() => {
+          useStore.setState((st) => ({ messages: st.messages.filter((m) => m.conversationId !== conv.id) }));
+          toast('Mensagens apagadas');
+        }}
+      />
     </section>
   );
 }
@@ -510,7 +714,23 @@ function Ticks({ status }: { status: Message['status'] }) {
   return <CheckCheck className={cn('h-3.5 w-3.5', status === 'read' ? 'text-[#34b7f1]' : 'text-ink-3')} />;
 }
 
-function Bubble({ m, prev, users, agentName }: { m: Message; prev?: Message; users: { id: string; name: string }[]; agentName?: string }) {
+function Bubble({
+  m,
+  prev,
+  users,
+  agentName,
+  quoted,
+  onReply,
+  onForward,
+}: {
+  m: Message;
+  prev?: Message;
+  users: { id: string; name: string }[];
+  agentName?: string;
+  quoted?: Message;
+  onReply?: () => void;
+  onForward: () => void;
+}) {
   if (m.kind === 'system') {
     return (
       <div className="my-2 flex justify-center">
@@ -532,12 +752,26 @@ function Bubble({ m, prev, users, agentName }: { m: Message; prev?: Message; use
           ? '📣 Disparo'
           : m.author === 'followup'
             ? '🔁 Follow-up automático'
+            : m.author === 'nps'
+              ? '⭐ Pesquisa NPS'
             : out
           ? users.find((u) => u.id === m.author)?.name
           : undefined;
 
   return (
-    <div className={cn('flex', out ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-2.5')}>
+    <div className={cn('group/msg flex items-center gap-1', out ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-2.5')}>
+      {!isNote && (
+        <div className={cn('flex gap-0.5 opacity-0 transition group-hover/msg:opacity-100', out ? 'order-first' : 'order-last')}>
+          {onReply && (
+            <button aria-label="Responder" title="Responder" onClick={onReply} className="rounded-full bg-white/90 p-1.5 text-ink-3 shadow-sm hover:text-ink">
+              <CornerUpLeft className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button aria-label="Encaminhar" title="Encaminhar" onClick={onForward} className="rounded-full bg-white/90 p-1.5 text-ink-3 shadow-sm hover:text-ink">
+            <Forward className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <div
         className={cn(
           'relative max-w-[78%] rounded-xl px-2.5 pt-1.5 pb-1 text-[14px] leading-snug shadow-[0_1px_0.5px_rgba(0,0,0,0.13)] md:max-w-[65%]',
@@ -551,6 +785,17 @@ function Bubble({ m, prev, users, agentName }: { m: Message; prev?: Message; use
           </div>
         )}
         {!isNote && out && !grouped && authorLabel && <div className="mb-0.5 text-[11.5px] font-semibold text-brand-700">{authorLabel}</div>}
+        {m.forwarded && (
+          <div className="mb-0.5 flex items-center gap-1 text-[11px] text-ink-3 italic">
+            <Forward className="h-3 w-3" /> Encaminhada
+          </div>
+        )}
+        {quoted && (
+          <div className="mb-1 rounded-md border-l-4 border-brand-500 bg-black/5 px-2 py-1 text-[12.5px]">
+            <div className="font-semibold text-brand-700">{quoted.direction === 'in' ? 'Cliente' : (users.find((u) => u.id === quoted.author)?.name ?? 'Você')}</div>
+            <div className="line-clamp-2 text-ink-2">{quoted.kind === 'image' ? '🖼️ Imagem' : quoted.fileName ?? quoted.body}</div>
+          </div>
+        )}
 
         {m.kind === 'image' ? (
           m.body.startsWith('data:') ? (
@@ -571,7 +816,13 @@ function Bubble({ m, prev, users, agentName }: { m: Message; prev?: Message; use
         ) : m.kind === 'document' ? (
           <div className="mb-1 flex items-center gap-2.5 rounded-lg bg-black/5 px-3 py-2.5">
             <FileText className="h-6 w-6 text-[#d03b3b]" />
-            <span className="truncate text-[13px] font-medium">{m.fileName ?? m.body}</span>
+            {m.fileData ? (
+              <a href={m.fileData} download={m.fileName} className="truncate text-[13px] font-medium hover:underline">
+                {m.fileName ?? m.body}
+              </a>
+            ) : (
+              <span className="truncate text-[13px] font-medium">{m.fileName ?? m.body}</span>
+            )}
           </div>
         ) : (
           <span className="break-words whitespace-pre-wrap">{waFormat(m.body)}</span>

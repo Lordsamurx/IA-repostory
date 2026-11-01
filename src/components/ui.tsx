@@ -372,7 +372,19 @@ export function Confirm({
 }
 
 /** Menu suspenso simples, fecha ao clicar fora */
-export function Menu({ trigger, children, align = 'right', width = 220 }: { trigger: (open: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: 'left' | 'right'; width?: number }) {
+export function Menu({
+  trigger,
+  children,
+  align = 'right',
+  width = 220,
+  side = 'bottom',
+}: {
+  trigger: (open: () => void) => ReactNode;
+  children: (close: () => void) => ReactNode;
+  align?: 'left' | 'right';
+  width?: number;
+  side?: 'top' | 'bottom';
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -386,7 +398,7 @@ export function Menu({ trigger, children, align = 'right', width = 220 }: { trig
       {trigger(() => setOpen((v) => !v))}
       {open && (
         <div
-          className={cn('animate-in absolute z-40 mt-1 rounded-xl border border-line bg-surface p-1 shadow-pop', align === 'right' ? 'right-0' : 'left-0')}
+          className={cn('animate-in absolute z-40 rounded-xl border border-line bg-surface p-1 shadow-pop', side === 'top' ? 'bottom-full mb-1' : 'mt-1', align === 'right' ? 'right-0' : 'left-0')}
           style={{ width }}
         >
           {children(() => setOpen(false))}

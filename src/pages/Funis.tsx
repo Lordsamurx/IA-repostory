@@ -1,19 +1,35 @@
 import { useMemo, useState, type DragEvent } from 'react';
-import { ArrowDown, ArrowUp, CalendarClock, Plus, Settings2, ThumbsDown, ThumbsUp, Trash2, Trophy } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarClock, Download, Eye, GripVertical, MessageSquare, MoreHorizontal, Pencil, Plus, Settings2, ThumbsDown, ThumbsUp, Trash2, Trophy, UserPlus, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { BulkAddModal, VisibilityModal } from '../components/funil/FunnelModals';
 import { useStore } from '../store/useStore';
-import { Avatar, Button, Confirm, Field, Input, Modal, PageHeader, SearchInput, Select, TagChip } from '../components/ui';
+import { Avatar, Button, Confirm, Field, Input, Menu, MenuItem, Modal, PageHeader, SearchInput, Select, TagChip } from '../components/ui';
 import DealModal from '../components/DealModal';
-import { cn, dayDiff, money, moneyShort, normalize, rampFor, uid } from '../lib/utils';
+import { cn, dateBR, dayDiff, downloadCsv, money, moneyShort, normalize, rampFor, uid } from '../lib/utils';
 import type { Deal, Pipeline } from '../types';
 
 export default function Funis() {
-  const pipelines = useStore((s) => s.pipelines);
+  const allPipelines = useStore((s) => s.pipelines);
+  const me = useStore((s) => s.users.find((u) => u.id === s.sessionUserId));
+  const isAdmin = me?.role === 'admin';
+  // Funis restritos só aparecem para quem tem acesso (admin vê todos)
+  const pipelines = allPipelines.filter((p) => {
+    const v = p.visibility;
+    if (isAdmin || !v || (!v.userIds.length && !v.departmentIds.length)) return true;
+    return Boolean(me && (v.userIds.includes(me.id) || me.departmentIds.some((d) => v.departmentIds.includes(d))));
+  });
   const deals = useStore((s) => s.deals);
   const contacts = useStore((s) => s.contacts);
   const users = useStore((s) => s.users);
   const tags = useStore((s) => s.tags);
   const tasks = useStore((s) => s.tasks);
-  const { moveDeal, setDealStatus, toast } = useStore.getState();
+  const { moveDeal, setDealStatus, toast, update, remove, startConversation } = useStore.getState();
+  const navigate = useNavigate();
+  const [bulkStage, setBulkStage] = useState<string | null>(null);
+  const [visOpen, setVisOpen] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [deletingStage, setDeletingStage] = useState<string | null>(null);
+  const [dragStage, setDragStage] = useState<string | null>(null);
 
   const [pipelineId, setPipelineId] = useState(pipelines[0]?.id ?? '');
   const [query, setQuery] = useState('');
@@ -32,6 +48,7 @@ export default function Funis() {
     () =>
       deals.filter((d) => {
         if (d.pipelineId !== pipeline?.id) return false;
+        if (!isAdmin && pipeline?.visibility?.onlyOwn && d.ownerId !== me?.id) return false;
         if (owner && d.ownerId !== owner) return false;
         if (query) {
           const c = contactById.get(d.contactId);
@@ -39,7 +56,7 @@ export default function Funis() {
         }
         return true;
       }),
-    [deals, pipeline?.id, owner, query, contactById],
+    [deals, pipeline, owner, query, contactById, isAdmin, me?.id],
   );
   const open = filtered.filter((d) => d.status === 'aberto');
   const won = filtered.filter((d) => d.status === 'ganho');
@@ -48,8 +65,24 @@ export default function Funis() {
 
   if (!pipeline) return null;
 
+  const setStages = (stages: Pipeline['stages']) =>
+    update('pipelines', pipeline.id, { stages: stages.map((x, i) => ({ ...x, color: rampFor(i, stages.length) })) });
+
   const onDrop = (e: DragEvent, target: string) => {
     e.preventDefault();
+    // reordenar etapas arrastando a coluna
+    if (dragStage) {
+      const from = pipeline.stages.findIndex((s) => s.id === dragStage);
+      const to = pipeline.stages.findIndex((s) => s.id === target);
+      setDragStage(null);
+      setOverStage(null);
+      if (from < 0 || to < 0 || from === to) return;
+      const copy = [...pipeline.stages];
+      const [it] = copy.splice(from, 1);
+      copy.splice(to, 0, it!);
+      setStages(copy);
+      return;
+    }
     const id = e.dataTransfer.getData('text/plain') || dragId;
     setOverStage(null);
     setDragId(null);
@@ -96,11 +129,31 @@ export default function Funis() {
           dragId === d.id && 'opacity-40',
         )}
       >
-        <div className="flex items-start gap-2">
+        <div className="group/card flex items-start gap-2">
           <Avatar name={c?.name ?? '?'} color={c?.color} size={28} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-semibold">{c?.name ?? 'Contato removido'}</div>
             <div className="truncate text-[12px] text-ink-3">{d.title}</div>
+          </div>
+          <div className="flex shrink-0 opacity-0 transition group-hover/card:opacity-100">
+            {c && (
+              <button
+                aria-label="Abrir conversa"
+                title="Abrir conversa"
+                className="rounded p-1 text-ink-3 hover:bg-canvas hover:text-brand-700"
+                onClick={(e) => (e.stopPropagation(), navigate(`/inbox/${startConversation(c.id)}`))}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              aria-label="Remover do funil"
+              title="Remover do funil"
+              className="rounded p-1 text-ink-3 hover:bg-canvas hover:text-critical"
+              onClick={(e) => (e.stopPropagation(), remove('deals', d.id), toast('Removido do funil'))}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
         {c && c.tagIds.length > 0 && (
@@ -140,6 +193,51 @@ export default function Funis() {
             <Button variant="secondary" icon={<Settings2 className="h-4 w-4" />} onClick={() => setEditPipeline(true)}>
               Editar funis
             </Button>
+            <Menu
+              width={240}
+              trigger={(t) => (
+                <Button variant="secondary" onClick={t} aria-label="Mais opções do funil">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              )}
+            >
+              {(close) => (
+                <>
+                  {isAdmin && (
+                    <MenuItem icon={<Eye />} onClick={() => (setVisOpen(true), close())}>
+                      Restringir quem vê este funil
+                    </MenuItem>
+                  )}
+                  <MenuItem icon={<UserPlus />} onClick={() => (setBulkStage(pipeline.stages[0]!.id), close())}>
+                    Adicionar contatos em massa
+                  </MenuItem>
+                  <MenuItem
+                    icon={<Download />}
+                    onClick={() => {
+                      downloadCsv(`funil-${normalize(pipeline.name).replace(/\W+/g, '-')}.csv`, [
+                        ['Contato', 'Telefone', 'Negócio', 'Etapa', 'Status', 'Valor', 'Responsável', 'Criado em'],
+                        ...filtered.map((d) => {
+                          const c = contactById.get(d.contactId);
+                          return [
+                            c?.name ?? '',
+                            c?.phone ?? '',
+                            d.title,
+                            pipeline.stages.find((s) => s.id === d.stageId)?.name ?? '',
+                            d.status,
+                            d.value,
+                            users.find((u) => u.id === d.ownerId)?.name ?? '',
+                            dateBR(d.createdAt),
+                          ];
+                        }),
+                      ]);
+                      close();
+                    }}
+                  >
+                    Exportar em CSV
+                  </MenuItem>
+                </>
+              )}
+            </Menu>
             <Button icon={<Plus className="h-4 w-4" />} onClick={() => setCreatingIn(pipeline.stages[0]!.id)}>
               Novo negócio
             </Button>
@@ -202,15 +300,66 @@ export default function Funis() {
                   {...dropProps(s.id)}
                   className={cn(
                     'flex h-full w-[288px] shrink-0 flex-col rounded-2xl bg-[#e9edf1] transition',
-                    overStage === s.id && 'bg-brand-100 ring-2 ring-brand-400',
+                    overStage === s.id && (dragStage ? 'ring-2 ring-ink-3' : 'bg-brand-100 ring-2 ring-brand-400'),
+                    dragStage === s.id && 'opacity-50',
                   )}
                 >
-                  <div className="px-3 pt-3 pb-2">
+                  <div
+                    className="px-3 pt-3 pb-2"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/x-stage', s.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDragStage(s.id);
+                    }}
+                    onDragEnd={() => (setDragStage(null), setOverStage(null))}
+                  >
                     <div className="h-1 rounded-full" style={{ background: s.color }} />
-                    <div className="mt-2.5 flex items-center gap-2">
-                      <span className="truncate text-[13.5px] font-semibold">{s.name}</span>
+                    <div className="mt-2.5 flex items-center gap-1.5">
+                      <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-ink-3" aria-label="Arraste para reordenar a etapa" />
+                      {renaming === s.id ? (
+                        <input
+                          autoFocus
+                          defaultValue={s.name}
+                          onFocus={(e) => e.target.select()}
+                          aria-label="Nome da etapa"
+                          onBlur={(e) => {
+                            const v = e.target.value.trim();
+                            if (v && v !== s.name) setStages(pipeline.stages.map((x) => (x.id === s.id ? { ...x, name: v } : x)));
+                            setRenaming(null);
+                          }}
+                          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                          className="min-w-0 flex-1 rounded border border-brand-400 bg-white px-1.5 text-[13.5px] font-semibold outline-none"
+                        />
+                      ) : (
+                        <span className="truncate text-[13.5px] font-semibold" onDoubleClick={() => setRenaming(s.id)}>
+                          {s.name}
+                        </span>
+                      )}
                       <span className="rounded-full bg-white px-1.5 text-[11px] font-medium text-ink-2">{items.length}</span>
                       <span className="ml-auto text-[12px] font-medium text-ink-2 tabular-nums">{moneyShort(items.reduce((a, d) => a + d.value, 0))}</span>
+                      <Menu
+                        width={210}
+                        trigger={(t) => (
+                          <button onClick={t} aria-label={`Opções da etapa ${s.name}`} className="rounded p-0.5 text-ink-3 hover:bg-white hover:text-ink">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        )}
+                      >
+                        {(close) => (
+                          <>
+                            <MenuItem icon={<UserPlus />} onClick={() => (setBulkStage(s.id), close())}>
+                              Adicionar contatos
+                            </MenuItem>
+                            <MenuItem icon={<Pencil />} onClick={() => (setRenaming(s.id), close())}>
+                              Renomear etapa
+                            </MenuItem>
+                            <MenuItem icon={<Trash2 />} danger onClick={() => (setDeletingStage(s.id), close())}>
+                              Excluir etapa
+                            </MenuItem>
+                          </>
+                        )}
+                      </Menu>
                     </div>
                   </div>
                   <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
@@ -225,6 +374,18 @@ export default function Funis() {
                 </div>
               );
             })}
+            {pipeline.stages.length < 10 && (
+              <button
+                onClick={() => {
+                  const stages = [...pipeline.stages, { id: uid('stg-'), name: 'Nova etapa', color: '', probability: 50 }];
+                  setStages(stages);
+                  setRenaming(stages[stages.length - 1]!.id);
+                }}
+                className="flex h-14 w-[220px] shrink-0 items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-[#c5ced6] text-[13px] font-medium text-ink-3 hover:border-brand-400 hover:text-brand-600"
+              >
+                <Plus className="h-4 w-4" /> Nova etapa
+              </button>
+            )}
           </div>
 
           {dragId && (
@@ -264,6 +425,24 @@ export default function Funis() {
 
       <DealModal open={Boolean(editing)} deal={editing} onClose={() => setEditing(undefined)} />
       <DealModal open={Boolean(creatingIn)} pipelineId={pipeline.id} stageId={creatingIn ?? undefined} onClose={() => setCreatingIn(null)} />
+      {bulkStage && <BulkAddModal pipeline={pipeline} stageId={bulkStage} onClose={() => setBulkStage(null)} />}
+      {visOpen && <VisibilityModal pipeline={pipeline} onClose={() => setVisOpen(false)} />}
+      <Confirm
+        open={Boolean(deletingStage)}
+        onClose={() => setDeletingStage(null)}
+        title="Excluir etapa?"
+        text={
+          pipeline.stages.length <= 2
+            ? 'O funil precisa de pelo menos 2 etapas.'
+            : `Os negócios em “${pipeline.stages.find((s) => s.id === deletingStage)?.name}” serão removidos do funil.`
+        }
+        onConfirm={() => {
+          if (!deletingStage || pipeline.stages.length <= 2) return;
+          for (const d of deals.filter((x) => x.stageId === deletingStage)) remove('deals', d.id);
+          setStages(pipeline.stages.filter((s) => s.id !== deletingStage));
+          toast('Etapa excluída');
+        }}
+      />
       <PipelineEditor open={editPipeline} onClose={() => setEditPipeline(false)} current={pipeline} onSelect={setPipelineId} />
     </div>
   );

@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { Building2, CheckCircle2, Circle, Database, ListPlus, Download, KeyRound, Palette, Pencil, Plus, Server, Tag as TagIcon, Trash2, Upload, Users, Wrench, Zap } from 'lucide-react';
+import { ThumbsUp, Building2, CheckCircle2, Circle, Database, ListPlus, Download, KeyRound, Palette, Pencil, Plus, Server, Tag as TagIcon, Trash2, Upload, Users, Wrench, Zap } from 'lucide-react';
 import { useMe, useStore } from '../store/useStore';
 import { Avatar, Badge, Button, Card, Confirm, Field, Input, Modal, PageHeader, Select, Switch, TagChip, Textarea } from '../components/ui';
-import { cn, pickColor, SWATCHES, uid } from '../lib/utils';
+import { cn, fieldVar, pickColor, SWATCHES, uid } from '../lib/utils';
 import { isSupabaseMode, isolatedClient } from '../lib/supabase';
 import { hashPassword } from '../lib/password';
 import { checkServerAI } from '../lib/ai';
 import { COLLECTIONS, type DataState } from '../data/seed';
 import type { CustomFieldType, Role, User, Weekday } from '../types';
 
-type Section = 'empresa' | 'equipe' | 'departamentos' | 'etiquetas' | 'campos' | 'respostas' | 'aparencia' | 'integracoes' | 'instalacao' | 'dados';
+type Section = 'empresa' | 'nps' | 'equipe' | 'departamentos' | 'etiquetas' | 'campos' | 'respostas' | 'aparencia' | 'integracoes' | 'instalacao' | 'dados';
 
 const SECTIONS: { id: Section; label: string; icon: typeof Building2; admin?: boolean }[] = [
   { id: 'empresa', label: 'Empresa e horários', icon: Building2 },
+  { id: 'nps', label: 'Pesquisa NPS', icon: ThumbsUp },
   { id: 'equipe', label: 'Equipe', icon: Users },
   { id: 'departamentos', label: 'Departamentos', icon: Users },
   { id: 'etiquetas', label: 'Etiquetas', icon: TagIcon },
@@ -53,6 +54,7 @@ export default function Configuracoes() {
           )}
           <fieldset disabled={!isAdmin && section !== 'instalacao'} className="min-w-0">
             {section === 'empresa' && <Empresa />}
+            {section === 'nps' && <NpsSettings />}
             {section === 'equipe' && <Equipe />}
             {section === 'departamentos' && <Departamentos />}
             {section === 'etiquetas' && <Etiquetas />}
@@ -635,7 +637,15 @@ function Dados() {
   );
 }
 
-const FIELD_TYPES: Record<CustomFieldType, string> = { texto: 'Texto', numero: 'Número', data: 'Data', lista: 'Lista de opções' };
+const FIELD_TYPES: Record<CustomFieldType, string> = {
+  texto: 'Texto simples',
+  texto_longo: 'Texto com várias linhas',
+  email: 'E-mail',
+  numero: 'Número',
+  data: 'Data',
+  hora: 'Hora',
+  lista: 'Lista de opções',
+};
 
 function Campos() {
   const fields = useStore((s) => s.customFields);
@@ -648,7 +658,7 @@ function Campos() {
     <Card>
       <div className="border-b border-line px-5 py-3">
         <h2 className="font-semibold">Campos personalizados</h2>
-        <p className="text-[12.5px] text-ink-3">Informações extras do contato (convênio, CPF, data de nascimento…). Aparecem no painel do chat e no cadastro.</p>
+        <p className="text-[12.5px] text-ink-3">Informações extras do contato (convênio, CPF, data de nascimento…). Aparecem no painel do chat e no cadastro, e viram variáveis nas mensagens: escreva {'{{nome_do_campo}}'} numa resposta rápida, disparo ou follow-up.</p>
       </div>
       <div className="divide-y divide-line">
         {fields.length === 0 && <p className="px-5 py-6 text-center text-[13px] text-ink-3">Nenhum campo criado.</p>}
@@ -660,6 +670,7 @@ function Campos() {
               className="min-w-40 flex-1 rounded-md border border-transparent px-2 py-1 text-[13.5px] outline-none hover:border-line focus:border-brand-500"
             />
             <Badge>{FIELD_TYPES[f.type]}</Badge>
+            <code className="rounded bg-canvas px-1.5 py-0.5 text-[11.5px] text-brand-700" title="Use em mensagens, respostas rápidas, disparos e follow-ups">{`{{${fieldVar(f.name)}}}`}</code>
             {f.type === 'lista' && (
               <input
                 defaultValue={f.options.join(', ')}
@@ -696,6 +707,42 @@ function Campos() {
           Adicionar
         </Button>
         {type === 'lista' && <Input className="sm:col-span-3" placeholder="Opções separadas por vírgula (ex.: Particular, Convênio A, Convênio B)" value={options} onChange={(e) => setOptions(e.target.value)} />}
+      </div>
+    </Card>
+  );
+}
+
+function NpsSettings() {
+  const nps = useStore((s) => s.settings.nps);
+  const { setSettings, toast } = useStore.getState();
+  const [form, setForm] = useState(nps);
+  return (
+    <Card className="space-y-4 p-5">
+      <div>
+        <h2 className="font-semibold">Pesquisa de satisfação (NPS)</h2>
+        <p className="text-[12.5px] text-ink-3">
+          O cliente responde de 0 a 10. Notas 9–10 são promotores, 7–8 neutros e 0–6 detratores. NPS = % promotores − % detratores. Os resultados ficam em Análises → NPS.
+        </p>
+      </div>
+      <label className="flex items-center justify-between rounded-lg border border-line p-3">
+        <span className="text-[13.5px] font-medium">Pesquisa ativada</span>
+        <Switch checked={form.enabled} onChange={(v) => setForm({ ...form, enabled: v })} />
+      </label>
+      <label className="flex items-center justify-between rounded-lg border border-line p-3">
+        <span>
+          <span className="block text-[13.5px] font-medium">Enviar automaticamente ao finalizar o atendimento</span>
+          <span className="text-[12.5px] text-ink-3">Desligado: só quando alguém clicar em “Solicitar NPS” no chat.</span>
+        </span>
+        <Switch checked={form.autoOnFinish} onChange={(v) => setForm({ ...form, autoOnFinish: v })} />
+      </label>
+      <Field label="Pergunta" hint="Variáveis: {{nome}}, {{empresa}} e campos personalizados">
+        <Textarea rows={2} value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} />
+      </Field>
+      <Field label="Agradecimento (enviado após a nota)">
+        <Textarea rows={2} value={form.thanks} onChange={(e) => setForm({ ...form, thanks: e.target.value })} />
+      </Field>
+      <div className="flex justify-end">
+        <Button onClick={() => (setSettings({ nps: form }), toast('Pesquisa NPS salva'))}>Salvar</Button>
       </div>
     </Card>
   );

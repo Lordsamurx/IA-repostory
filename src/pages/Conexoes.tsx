@@ -35,6 +35,7 @@ export default function Conexoes() {
   const connections = useStore((s) => s.connections);
   const conversations = useStore((s) => s.conversations);
   const departments = useStore((s) => s.departments);
+  const isAdmin = useStore((s) => s.users.find((u) => u.id === s.sessionUserId)?.role === 'admin');
   const { update, remove, toast } = useStore.getState();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Connection | null>(null);
@@ -47,9 +48,13 @@ export default function Conexoes() {
         title="Conexões"
         subtitle="Números de WhatsApp conectados ao CRM"
         actions={
-          <Button icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
-            Conectar novo WhatsApp
-          </Button>
+          isAdmin ? (
+            <Button icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
+              Conectar novo WhatsApp
+            </Button>
+          ) : (
+            <span className="text-[12.5px] text-ink-3">Só administradores conectam números e leem o QR Code.</span>
+          )
         }
       />
       <div className="mx-auto max-w-5xl space-y-4 p-6">
@@ -78,10 +83,11 @@ export default function Conexoes() {
                   </span>
                   <span>Fila: {departments.find((d) => d.id === c.departmentId)?.name ?? '—'}</span>
                   <span>{open} conversa(s) abertas</span>
+                  <span>{c.allowedUserIds?.length ? `${c.allowedUserIds.length} usuário(s) podem iniciar conversas` : 'Toda a equipe pode iniciar conversas'}</span>
                   <span>desde {dateBR(c.createdAt)}</span>
                 </div>
               </div>
-              <div className="flex gap-1.5">
+              <div className={cn('flex gap-1.5', !isAdmin && 'hidden')}>
                 {c.status === 'conectado' ? (
                   <Button variant="secondary" size="sm" icon={<Unplug className="h-4 w-4" />} onClick={() => (update('connections', c.id, { status: 'desconectado' }), toast('WhatsApp desconectado', 'info'))}>
                     Desconectar
@@ -220,7 +226,11 @@ function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: (
                 </Select>
               </Field>
             )}
-            <Field label={type === 'api_oficial' ? 'Token de acesso permanente' : 'Token / API key do provedor'} className="sm:col-span-2" hint="O token é armazenado no servidor e nunca aparece de novo na tela.">
+            <Field
+              label={type === 'api_oficial' ? 'Token de acesso permanente' : 'Token / API key do provedor'}
+              className="sm:col-span-2"
+              hint="Nesta versão o token só é conferido aqui e não é salvo: o envio real pelo WhatsApp ainda não está ligado (veja docs/WHATSAPP.md)."
+            >
               <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
             </Field>
           </>
@@ -237,9 +247,11 @@ function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: (
 
 function EditConnectionModal({ connection, onClose }: { connection: Connection; onClose: () => void }) {
   const departments = useStore((s) => s.departments);
+  const users = useStore((s) => s.users);
   const { update, toast } = useStore.getState();
   const [name, setName] = useState(connection.name);
   const [dep, setDep] = useState(connection.departmentId ?? '');
+  const [allowed, setAllowed] = useState<string[]>(connection.allowedUserIds ?? []);
   return (
     <Modal
       open
@@ -249,7 +261,7 @@ function EditConnectionModal({ connection, onClose }: { connection: Connection; 
       footer={
         <Button
           onClick={() => {
-            update('connections', connection.id, { name, departmentId: dep });
+            update('connections', connection.id, { name, departmentId: dep, allowedUserIds: allowed });
             toast('Conexão atualizada');
             onClose();
           }}
@@ -270,6 +282,21 @@ function EditConnectionModal({ connection, onClose }: { connection: Connection; 
               </option>
             ))}
           </Select>
+        </Field>
+        <Field label="Quem pode iniciar conversas por este número" hint="Nenhum marcado = toda a equipe. Responder conversas existentes continua liberado.">
+          <div className="space-y-1.5">
+            {users.map((u) => (
+              <label key={u.id} className="flex items-center gap-2 text-[13px]">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--brand)]"
+                  checked={allowed.includes(u.id)}
+                  onChange={(e) => setAllowed(e.target.checked ? [...allowed, u.id] : allowed.filter((x) => x !== u.id))}
+                />
+                {u.name}
+              </label>
+            ))}
+          </div>
         </Field>
       </div>
     </Modal>

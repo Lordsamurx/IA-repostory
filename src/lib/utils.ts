@@ -175,3 +175,9 @@ export function parseCsv(text: string): string[][] {
 /** Rampa ordinal azul (skill dataviz): etapas do funil do mais claro ao mais escuro */
 export const STAGE_RAMP = ['#86b6ef', '#6da7ec', '#5598e7', '#3987e5', '#2a78d6', '#256abf', '#1c5cab', '#184f95'];
 export const rampFor = (i: number, n: number) => STAGE_RAMP[Math.round((i / Math.max(1, n - 1)) * (STAGE_RAMP.length - 1))]!;
+
+/** Nome da variável de um campo personalizado: "Data de nascimento" → data_de_nascimento */
+export const fieldVar = (name: string) =>
+  normalize(name)
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');

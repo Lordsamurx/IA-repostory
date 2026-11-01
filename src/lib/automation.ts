@@ -10,6 +10,7 @@ import { useStore } from '../store/useStore';
 import type { Conversation, LeadSource } from '../types';
 import { agentForConnection, runAgent } from './ai';
 import { handleChatbot } from './chatbot';
+import { handleNps } from './nps';
 import { tickBroadcasts, tickScheduled } from './broadcast';
 import { nowIso, uid } from './utils';
 
@@ -30,7 +31,8 @@ export function startAutomation() {
     lastCount = s.messages.length;
     for (const m of fresh) {
       if (m.direction !== 'in') continue;
-      // o chatbot tem prioridade; se ele tratou a mensagem, a IA não responde
+      // resposta de pesquisa NPS > chatbot > IA
+      if (handleNps(m.conversationId, m)) continue;
       if (handleChatbot(m.conversationId, m)) continue;
       const conv = useStore.getState().conversations.find((c) => c.id === m.conversationId);
       if (conv?.aiEnabled) void runAgent(conv.id);

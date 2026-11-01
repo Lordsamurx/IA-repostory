@@ -22,7 +22,7 @@ function vars(conv: Conversation) {
   return { nome: contact ? firstName(contact.name) : '', empresa: st.settings.companyName };
 }
 
-function startFlow(conv: Conversation, flow: ChatbotFlow) {
+export function startFlow(conv: Conversation, flow: ChatbotFlow) {
   const st = useStore.getState();
   st.sendMessage(conv.id, menuText(flow, vars(conv)), { author: 'bot' });
   st.update('conversations', conv.id, { bot: { flowId: flow.id, attempts: 0 }, aiEnabled: false });
@@ -83,7 +83,7 @@ function applyOption(conv: Conversation, flow: ChatbotFlow, key: string) {
 export function handleChatbot(conversationId: string, msg: Message): boolean {
   const st = useStore.getState();
   const conv = st.conversations.find((c) => c.id === conversationId);
-  if (!conv || conv.status === 'finalizado') return false;
+  if (!conv || conv.status === 'finalizado' || conv.botDisabled) return false;
 
   // 1. Aguardando escolha do menu
   if (conv.bot) {

@@ -9,6 +9,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Columns3,
+  FolderOpen,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -36,6 +37,7 @@ const NAV = [
       { to: '/', label: 'Painel', icon: LayoutDashboard, end: true },
       { to: '/inbox', label: 'Inbox', icon: MessageSquare, badge: 'inbox' as const },
       { to: '/disparos', label: 'Disparos', icon: Megaphone },
+      { to: '/arquivos', label: 'Arquivos', icon: FolderOpen },
     ],
   },
   {
@@ -80,7 +82,8 @@ export default function AppLayout() {
   const waiting = useStore((s) => s.conversations.filter((c) => c.status === 'aguardando').length);
   const unreadTotal = useStore((s) => s.conversations.reduce((a, c) => a + (c.status !== 'finalizado' ? c.unread : 0), 0));
   const lateTasks = useStore((s) => s.tasks.filter((t) => !t.done && new Date(t.dueAt) < new Date() && t.assigneeId === s.sessionUserId).length);
-  const notifications = useStore((s) => s.notifications);
+  const allNotifications = useStore((s) => s.notifications);
+  const notifications = allNotifications.filter((n) => !n.userId || n.userId === me?.id);
   const update = useStore((s) => s.update);
   const logout = useStore((s) => s.logout);
   const navigate = useNavigate();

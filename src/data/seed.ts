@@ -9,11 +9,13 @@ import type {
   CustomField,
   Deal,
   Department,
+  FileAsset,
   FollowUp,
   KnowledgeItem,
   LeadSource,
   Message,
   Notification,
+  NpsResponse,
   Pipeline,
   Product,
   QuickReply,
@@ -49,6 +51,8 @@ export interface DataState {
   scheduled: ScheduledMessage[];
   chatbots: ChatbotFlow[];
   customFields: CustomField[];
+  files: FileAsset[];
+  npsResponses: NpsResponse[];
 }
 
 export const COLLECTIONS = [
@@ -73,6 +77,8 @@ export const COLLECTIONS = [
   'scheduled',
   'chatbots',
   'customFields',
+  'files',
+  'npsResponses',
 ] as const satisfies readonly (keyof DataState)[];
 
 export type CollectionName = (typeof COLLECTIONS)[number];
@@ -89,6 +95,12 @@ export const DEFAULT_SETTINGS: Settings = {
     'Olá! Nosso horário de atendimento é de segunda a sexta, das 8h às 18h. Assim que voltarmos, respondemos você. 😊',
   autoAssign: true,
   aiProvider: 'anthropic',
+  nps: {
+    enabled: true,
+    autoOnFinish: true,
+    question: 'Olá, {{nome}}! De 0 a 10, quanto você recomendaria a {{empresa}} para um amigo? Responda só com o número 🙂',
+    thanks: 'Obrigado pela sua avaliação, {{nome}}! 💚',
+  },
 };
 
 /** Base vazia — usada quando o cliente escolhe "começar do zero" no onboarding. */
@@ -122,6 +134,8 @@ export function emptyState(settings: Partial<Settings> = {}, admin?: User): Data
     scheduled: [],
     chatbots: [],
     customFields: [],
+    files: [],
+    npsResponses: [],
   };
 }
 
@@ -605,6 +619,34 @@ export function demoState(): DataState {
     },
   ];
 
+  const svgFile = (title: string, color: string) =>
+    'data:image/svg+xml;base64,' +
+    btoa(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="${color}"/><text x="300" y="210" font-family="sans-serif" font-size="36" fill="#fff" text-anchor="middle">${title}</text></svg>`,
+    );
+  const txtFile = (text: string) => 'data:text/plain;base64,' + btoa(unescape(encodeURIComponent(text)));
+  const files: FileAsset[] = [
+    { id: 'fil-tabela', name: 'Tabela de preços 2026.txt', folder: 'Comercial', mime: 'text/plain', size: 412, data: txtFile('Tabela de preços Odonto Prime 2026\nImplante unitário: R$ 3.800\nClareamento a laser: R$ 890\nAlinhador invisível: a partir de R$ 6.900\nLimpeza: R$ 220'), createdBy: 'usr-admin', createdAt: ago(20 * D) },
+    { id: 'fil-antes-depois', name: 'Antes e depois — clareamento.svg', folder: 'Marketing', mime: 'image/svg+xml', size: 1800, data: svgFile('Antes e depois', '#2a78d6'), createdBy: 'usr-julia', createdAt: ago(12 * D) },
+    { id: 'fil-mapa', name: 'Como chegar.svg', folder: 'Atendimento', mime: 'image/svg+xml', size: 1700, data: svgFile('Av. do Contorno, 4520', '#00a389'), createdBy: 'usr-admin', createdAt: ago(30 * D) },
+    { id: 'fil-preparo', name: 'Cuidados pós-clareamento.txt', folder: 'Atendimento', mime: 'text/plain', size: 300, data: txtFile('Evite café, vinho e alimentos com corante por 48 horas.'), createdBy: 'usr-caio', createdAt: ago(8 * D) },
+  ];
+
+  const npsResponses: NpsResponse[] = Array.from({ length: 26 }, (_, i) => {
+    const roll = r();
+    const score = roll > 0.35 ? 9 + Math.round(r()) : roll > 0.15 ? 7 + Math.round(r()) : Math.floor(r() * 7);
+    const c = contacts[(i * 7) % contacts.length]!;
+    return {
+      id: `nps-${i + 1}`,
+      conversationId: '',
+      contactId: c.id,
+      userId: pick(['usr-julia', 'usr-caio', 'usr-admin']),
+      score,
+      comment: score >= 9 ? pick(['Atendimento excelente!', 'Muito atenciosos', 'Resolveram rápido']) : score <= 6 ? pick(['Demorou para responder', 'Achei caro']) : undefined,
+      createdAt: ago(r() * 28 * D),
+    };
+  });
+
   return {
     settings,
     users,
@@ -628,5 +670,7 @@ export function demoState(): DataState {
     scheduled,
     chatbots,
     customFields,
+    files,
+    npsResponses,
   };
 }

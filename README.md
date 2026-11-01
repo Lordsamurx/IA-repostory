@@ -19,9 +19,10 @@ Projeto construído a partir do material _“Instale seu próprio CRM de WhatsAp
 | Menu | O que faz |
 |---|---|
 | **Painel** | Leads do dia, fila de espera, conversas por atendente, tempo de 1ª resposta, vendas, funil e tarefas do dia |
-| **Inbox** | Abas Meus / Fila / Todos / Finalizados, busca, filtro por conexão e etiqueta. Chat com bolhas do WhatsApp, ✓✓ de leitura, notas internas, respostas rápidas (`/atalho`), emojis, anexos, **mensagens agendadas**, assumir, atribuir, transferir, finalizar e reabrir, ligar e desligar a IA por conversa. Painel do lead com etiquetas, dados, **campos personalizados**, negócios, tarefas e anotações |
+| **Inbox** | Abas Meus / Fila / Todos / Finalizados, busca e filtros avançados: etiquetas (qualquer / todas / não tem), responsável, etapa do funil, conexão, não lidas, favoritos, agendados e ordenação. Chat estilo WhatsApp com ✓✓, **responder e encaminhar** mensagens, notas internas com **@menção** (o colega é notificado), respostas rápidas (`/atalho`), anexos do computador ou da **biblioteca de Arquivos**, **acionar um fluxo do chatbot** manualmente, mensagens agendadas (com “Enviar agora”), favoritar, renomear, marcar como não lida, solicitar NPS, ligar e desligar o chatbot ou a IA por conversa. Painel do lead com etiquetas, dados, campos personalizados, negócios, tarefas e anotações |
+| **Arquivos** | Biblioteca da empresa com pastas (catálogos, tabelas de preço, fotos): enviar arquivos arrastando, pré-visualizar, renomear e mover. Tudo fica disponível no clipe do chat |
 | **Disparos** | Envio em massa segmentado por etiqueta, origem ou etapa do funil, com pré-visualização, intervalo aleatório anti-bloqueio, agendamento, pausa e retomada, e taxa de resposta |
-| **Funis** | Kanban com arrastar e soltar, áreas de Ganho e Perdido (com motivo), vários funis, editor de etapas e probabilidades, previsão ponderada e negócios com produtos |
+| **Funis** | Kanban com arrastar e soltar (cards **e etapas**), áreas de Ganho e Perdido com motivo, “+ Nova etapa” direto no quadro, menu por etapa (adicionar contatos em massa por filtro, renomear, excluir), ações rápidas no card (abrir conversa, remover do funil), vários funis, **visibilidade restrita** por usuário ou departamento (com “cada um vê só os seus”), exportação em CSV e previsão ponderada. Um contato fica em só uma etapa por funil |
 | **Contatos** | Tabela com filtros, paginação, seleção em massa e importação e exportação de CSV, com detecção de número duplicado |
 | **Tarefas** | Agrupadas em Atrasadas / Hoje / Amanhã / Próximos dias, com tipo, prioridade e responsável |
 | **Produtos** | Catálogo com preço, categoria e SKU, usado nos negócios e pela IA |
@@ -29,9 +30,9 @@ Projeto construído a partir do material _“Instale seu próprio CRM de WhatsAp
 | **Chatbot** | Menu numerado de boas-vindas. Cada opção pode transferir para um departamento, colocar uma etiqueta, criar ou mover um negócio no funil, passar para a IA ou finalizar. Tem simulador |
 | **Follow-ups** | Sequências que disparam quando o lead para de responder e param sozinhas quando ele responde |
 | **Base de conhecimento** | Perguntas frequentes, textos, links e documentos, com um campo para testar o que a IA encontraria |
-| **Conexões** | WhatsApp por QR Code, API oficial (Meta) ou provedor parceiro, com fila e status |
-| **Análises** | Conversão, receita, ticket médio, funil por etapa, origem dos leads, motivos de perda, desempenho da equipe e campanhas do Meta Ads (CPL, CTR, custo por venda), com exportação |
-| **Configurações** | Empresa e horários, equipe e perfis (admin, supervisor, atendente), departamentos, etiquetas, campos personalizados, respostas rápidas, **aparência white label** (cor e nome), integrações de IA, checklist da instalação e backup |
+| **Conexões** | WhatsApp por QR Code, API oficial (Meta) ou provedor parceiro, com fila e status. Só administradores conectam números, e cada número pode limitar quem inicia conversas |
+| **Análises** | Conversão, receita, ticket médio, funil por etapa, origem dos leads, motivos de perda, desempenho da equipe, **NPS** (nota geral, distribuição, NPS por atendente e comentários) e campanhas do Meta Ads (CPL, CTR, custo por venda), com exportação |
+| **Configurações** | Empresa e horários, pesquisa NPS (envio automático ao finalizar o atendimento), equipe e perfis (admin, supervisor, atendente), departamentos, etiquetas, campos personalizados (texto, texto longo, e-mail, número, data, hora, lista — e cada um vira variável `{{campo}}` nas mensagens), respostas rápidas, **aparência white label** (cor e nome), integrações de IA, checklist da instalação e backup |
 
 **Ordem de atendimento de uma mensagem nova:** primeiro o chatbot (se houver fluxo ativo na conexão), depois o agente de IA e por fim a fila humana. Quando um atendente responde, a IA pausa sozinha.
 

@@ -16,6 +16,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Inbox = lazy(() => import('./pages/Inbox'));
 const Disparos = lazy(() => import('./pages/Disparos'));
 const Chatbot = lazy(() => import('./pages/Chatbot'));
+const Arquivos = lazy(() => import('./pages/Arquivos'));
 const Funis = lazy(() => import('./pages/Funis'));
 const Contatos = lazy(() => import('./pages/Contatos'));
 const Tarefas = lazy(() => import('./pages/Tarefas'));
@@ -112,6 +113,7 @@ export default function App() {
             <Route path="inbox/:conversationId" element={<Inbox />} />
             <Route path="disparos" element={<Disparos />} />
             <Route path="chatbot" element={<Chatbot />} />
+            <Route path="arquivos" element={<Arquivos />} />
             <Route path="funis" element={<Funis />} />
             <Route path="contatos" element={<Contatos />} />
             <Route path="tarefas" element={<Tarefas />} />

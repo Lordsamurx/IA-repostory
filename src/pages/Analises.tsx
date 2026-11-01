@@ -4,7 +4,8 @@ import { useStore } from '../store/useStore';
 import { Avatar, Badge, Button, Card, Field, Input, Modal, PageHeader, Select, StatTile, Tabs } from '../components/ui';
 import { ChartCard, HBarChart, TrendChart, VBarChart } from '../components/charts';
 import { dailySeries, funnel, inRange, responseTimes } from '../lib/metrics';
-import { downloadCsv, duration, money, number, pct, uid } from '../lib/utils';
+import { npsScore } from '../lib/nps';
+import { dateBR, downloadCsv, duration, money, number, pct, uid } from '../lib/utils';
 import { LEAD_SOURCES, type Campaign } from '../types';
 
 type Range = '7' | '30' | '90';
@@ -13,7 +14,7 @@ export default function Analises() {
   const s = useStore();
   const [range, setRange] = useState<Range>('30');
   const [pipelineId, setPipelineId] = useState(s.pipelines[0]?.id ?? '');
-  const [tab, setTab] = useState<'funil' | 'equipe' | 'meta'>('funil');
+  const [tab, setTab] = useState<'funil' | 'equipe' | 'nps' | 'meta'>('funil');
   const days = Number(range);
 
   const data = useMemo(() => {
@@ -101,6 +102,7 @@ export default function Analises() {
           items={[
             { value: 'funil', label: 'Funil e origens' },
             { value: 'equipe', label: 'Equipe' },
+            { value: 'nps', label: 'NPS' },
             { value: 'meta', label: 'Meta Ads' },
           ]}
         />
@@ -186,6 +188,7 @@ export default function Analises() {
           </Card>
         )}
 
+        {tab === 'nps' && <NpsReport days={days} />}
         {tab === 'meta' && <MetaAds />}
       </div>
     </div>
@@ -333,5 +336,80 @@ function CampaignModal({ open, onClose }: { open: boolean; onClose: () => void }
         </Field>
       </div>
     </Modal>
+  );
+}
+
+function NpsReport({ days }: { days: number }) {
+  const all = useStore((s) => s.npsResponses);
+  const users = useStore((s) => s.users);
+  const contacts = useStore((s) => s.contacts);
+  const list = all.filter((r) => inRange(r.createdAt, days));
+  const sc = npsScore(list);
+  const label = sc.total === 0 ? '—' : sc.nps >= 75 ? 'Excelente' : sc.nps >= 50 ? 'Muito bom' : sc.nps >= 0 ? 'Razoável' : 'Crítico';
+  const dist = Array.from({ length: 11 }, (_, n) => ({ label: String(n), value: list.filter((r) => r.score === n).length }));
+  const byUser = users
+    .map((u) => {
+      const mine = list.filter((r) => r.userId === u.id);
+      return { u, ...npsScore(mine) };
+    })
+    .filter((x) => x.total > 0)
+    .sort((a, b) => b.nps - a.nps);
+  const comments = list.filter((r) => r.comment).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
+  const share = (n: number) => (sc.total ? pct(n / sc.total, 0) : '—');
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile label="NPS" value={sc.total ? sc.nps : '—'} hint={label} />
+        <StatTile label="Respostas" value={number(sc.total)} />
+        <StatTile label="Promotores (9–10)" value={share(sc.promoters)} hint={`${sc.promoters} clientes`} />
+        <StatTile label="Detratores (0–6)" value={share(sc.detractors)} hint={`${sc.detractors} clientes · neutros ${share(sc.passives)}`} />
+      </div>
+      {sc.total === 0 ? (
+        <Card className="p-10 text-center text-[13px] text-ink-3">Nenhuma resposta no período. A pesquisa é enviada ao finalizar um atendimento (Configurações → Pesquisa NPS).</Card>
+      ) : (
+        <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+          <ChartCard title="Distribuição das notas" subtitle="Quantas respostas para cada nota de 0 a 10">
+            <VBarChart data={dist} />
+          </ChartCard>
+          <Card className="overflow-hidden">
+            <div className="px-5 pt-4 pb-2 text-[14px] font-semibold">NPS por atendente</div>
+            <table className="w-full text-[13px]">
+              <tbody>
+                {byUser.map((x) => (
+                  <tr key={x.u.id} className="border-t border-line">
+                    <td className="px-5 py-2.5">
+                      <span className="flex items-center gap-2">
+                        <Avatar name={x.u.name} color={x.u.color} size={24} /> {x.u.name}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-ink-3 tabular-nums">{x.total} resp.</td>
+                    <td className="px-5 py-2.5 text-right font-semibold tabular-nums">{x.nps}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      )}
+      {comments.length > 0 && (
+        <Card>
+          <div className="px-5 pt-4 pb-2 text-[14px] font-semibold">Comentários recentes</div>
+          <ul className="divide-y divide-line">
+            {comments.map((r) => (
+              <li key={r.id} className="flex items-start gap-3 px-5 py-3 text-[13px]">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-canvas font-semibold tabular-nums">{r.score}</span>
+                <span className="flex-1">
+                  “{r.comment}”
+                  <span className="block text-[11.5px] text-ink-3">
+                    {contacts.find((c) => c.id === r.contactId)?.name ?? 'Cliente'} · {dateBR(r.createdAt, { day: '2-digit', month: '2-digit' })}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </div>
   );
 }

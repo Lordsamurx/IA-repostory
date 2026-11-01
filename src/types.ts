@@ -76,13 +76,19 @@ export interface Conversation {
   bot?: { flowId: ID; attempts: number };
   /** Disparo que originou a última mensagem enviada (para medir respostas) */
   broadcastId?: ID;
+  /** Usuários que marcaram a conversa como favorita */
+  favoriteBy?: ID[];
+  /** Chatbot desligado nesta conversa (ex.: grupos, clientes VIP) */
+  botDisabled?: boolean;
+  /** Pesquisa NPS enviada e aguardando a nota */
+  npsPending?: boolean;
 }
 
 export type MessageKind = 'text' | 'note' | 'image' | 'audio' | 'document' | 'system';
-export type MessageAuthor = 'contact' | 'ai' | 'bot' | 'broadcast' | 'system' | 'followup' | ID;
+export type MessageAuthor = 'contact' | 'ai' | 'bot' | 'broadcast' | 'system' | 'followup' | 'nps' | ID;
 
 /** Autores automáticos (não são pessoas da equipe) */
-export const AUTOMATED_AUTHORS = ['ai', 'bot', 'broadcast', 'system', 'followup'] as const;
+export const AUTOMATED_AUTHORS = ['ai', 'bot', 'broadcast', 'system', 'followup', 'nps'] as const;
 
 export interface Message {
   id: ID;
@@ -94,6 +100,13 @@ export interface Message {
   createdAt: string;
   status: 'sent' | 'delivered' | 'read';
   fileName?: string;
+  /** Mensagem citada (responder) */
+  replyTo?: ID;
+  forwarded?: boolean;
+  /** Usuários mencionados com @ numa nota interna */
+  mentions?: ID[];
+  /** Conteúdo do arquivo (data URL) quando enviado da biblioteca */
+  fileData?: string;
 }
 
 export interface Stage {
@@ -107,6 +120,8 @@ export interface Pipeline {
   id: ID;
   name: string;
   stages: Stage[];
+  /** Restrição de visualização. Vazio = toda a equipe. Admins sempre veem. */
+  visibility?: { userIds: ID[]; departmentIds: ID[]; onlyOwn: boolean };
 }
 
 export type DealStatus = 'aberto' | 'ganho' | 'perdido';
@@ -221,6 +236,8 @@ export interface Connection {
   departmentId?: ID;
   color: string;
   createdAt: string;
+  /** Quem pode iniciar conversas por este número. Vazio = toda a equipe. */
+  allowedUserIds?: ID[];
 }
 
 export interface QuickReply {
@@ -250,6 +267,7 @@ export interface Settings {
   businessHours: { start: string; end: string; days: Weekday[] };
   outOfHoursMessage: string;
   autoAssign: boolean;
+  nps: { enabled: boolean; autoOnFinish: boolean; question: string; thanks: string };
   aiProvider: 'anthropic' | 'openai';
 }
 
@@ -260,9 +278,11 @@ export interface Notification {
   createdAt: string;
   read: boolean;
   link?: string;
+  /** Destinatário. Sem valor = toda a equipe. */
+  userId?: ID;
 }
 
-export type CustomFieldType = 'texto' | 'numero' | 'data' | 'lista';
+export type CustomFieldType = 'texto' | 'texto_longo' | 'email' | 'numero' | 'data' | 'hora' | 'lista';
 
 export interface CustomField {
   id: ID;
@@ -323,5 +343,28 @@ export interface ChatbotFlow {
   options: BotOption[];
   invalidMessage: string;
   runs: number;
+  createdAt: string;
+}
+
+export interface FileAsset {
+  id: ID;
+  name: string;
+  folder: string;
+  mime: string;
+  size: number;
+  /** Conteúdo em data URL (limitado em tamanho) */
+  data: string;
+  createdBy?: ID;
+  createdAt: string;
+}
+
+export interface NpsResponse {
+  id: ID;
+  conversationId: ID;
+  contactId: ID;
+  /** Atendente responsável no momento da pesquisa */
+  userId?: ID;
+  score: number;
+  comment?: string;
   createdAt: string;
 }
