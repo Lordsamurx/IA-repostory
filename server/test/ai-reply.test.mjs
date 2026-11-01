@@ -12,7 +12,7 @@ import {
   makeDist,
   memberAuth,
   validBody,
-} from './helpers.mjs';
+} from '../support/helpers.mjs';
 
 /** URL de referência: nenhuma requisição sem Bearer chega ao Supabase, então não há chamada de rede. */
 const SUPA_REF = 'https://projeto-teste.supabase.co';

@@ -1,7 +1,7 @@
 // Testes: health, SPA, cabeçalhos de segurança e path traversal.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { appServer, makeDist, rawGet } from './helpers.mjs';
+import { appServer, makeDist, rawGet } from '../support/helpers.mjs';
 
 describe('health e cabeçalhos', () => {
   let app;

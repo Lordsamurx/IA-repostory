@@ -1,7 +1,7 @@
 // Testes: formato da requisição enviada à API da Anthropic (com servidor falso) e interpretação da resposta.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { AI_KEY, appServer, fakeAnthropic, makeDist, memberAuth, validBody } from './helpers.mjs';
+import { AI_KEY, appServer, fakeAnthropic, makeDist, memberAuth, validBody } from '../support/helpers.mjs';
 import { finish, normalizeInput, toMessages } from '../index.mjs';
 
 const ask = (app, body) =>

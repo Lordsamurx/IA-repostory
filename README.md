@@ -117,7 +117,7 @@ src/
     metrics.ts        cálculos das análises
   data/seed.ts        dados de demonstração e base vazia
 server/index.mjs      API (IA) + serve a interface em produção
-server/test/          testes da API (node --test)
+server/test/          testes da API (node --test); apoio em server/support/
 supabase/schema.sql   tabela, RLS e Realtime
 supabase/test-rls.sh  teste do RLS em PostgreSQL 16 temporário
 test/                 testes unitários do front (CSV, hash de senha)
@@ -137,7 +137,7 @@ Pré-requisitos: Node 22 e as dependências instaladas (`npm ci` na raiz e em `s
 
 ```bash
 npm run typecheck      # tipos do front (tsc -b)
-npm test               # 68 testes: CSV, hash de senha e API do servidor
+npm test               # 67 testes: CSV, hash de senha e API do servidor
 npm run test:rls       # RLS em PostgreSQL 16 temporário (porta 5499; apaga tudo ao final)
 npm run build          # verificação completa de build
 ```
