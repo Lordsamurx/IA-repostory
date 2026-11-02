@@ -67,7 +67,11 @@ export function startBroadcast(id: string) {
     const contactId = cur.recipients[cur.sent]!;
     if (s.contacts.some((c) => c.id === contactId)) {
       const convId = conversationFor(contactId, cur.connectionId, id);
-      useStore.getState().sendMessage(convId, cur.message, { author: 'broadcast' });
+      useStore.getState().sendMessage(convId, cur.message, {
+        author: 'broadcast',
+        templateName: cur.templateName,
+        templateLang: cur.templateLang,
+      });
     }
     useStore.getState().update('broadcasts', id, { sent: cur.sent + 1 });
     // intervalo real configurado, com variação aleatória de ±30%

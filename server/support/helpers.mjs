@@ -267,3 +267,27 @@ export async function fakePostgrest(seed = [], serviceKey = 'service-role-teste'
   const of = (collection) => [...rows.values()].filter((r) => r.collection === collection).map((r) => r.data);
   return Object.assign(srv, { rows, of, serviceKey });
 }
+
+/**
+ * Meta Cloud API falsa (graph.facebook.com). Guarda o que foi enviado em `sent`;
+ * `failCode` faz o próximo envio falhar com esse código de erro da Meta.
+ */
+export async function fakeMeta({ token = 'meta-token-teste', phoneId = '1098765' } = {}) {
+  const ctl = { sent: [], failCode: null };
+  const srv = await listen((req, res, body) => {
+    const url = new URL(req.url, 'http://x');
+    if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: { message: 'Invalid OAuth access token', code: 190 } });
+    if (url.pathname === `/${phoneId}` && req.method === 'GET') return json(res, 200, { display_phone_number: '+55 31 3333-0000', verified_name: 'Odonto Teste', id: phoneId });
+    if (url.pathname === `/${phoneId}/messages` && req.method === 'POST') {
+      if (ctl.failCode) {
+        const code = ctl.failCode;
+        ctl.failCode = null;
+        return json(res, 400, { error: { message: 'erro de teste', code } });
+      }
+      ctl.sent.push(body);
+      return json(res, 200, { messaging_product: 'whatsapp', contacts: [{ input: body.to, wa_id: body.to }], messages: [{ id: `wamid.${ctl.sent.length}` }] });
+    }
+    json(res, 404, { message: 'rota não existe no fake' });
+  });
+  return Object.assign(srv, { ctl, token, phoneId });
+}

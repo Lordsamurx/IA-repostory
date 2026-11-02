@@ -7,6 +7,8 @@ export interface ServerHealth {
   supabase: boolean;
   automation: boolean;
   whatsapp: boolean;
+  /** API oficial da Meta configurada no servidor */
+  meta?: boolean;
 }
 
 let health: Promise<ServerHealth | null> | null = null;

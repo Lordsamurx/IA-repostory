@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRightLeft,
   Bot,
-  AlertCircle,
   Check,
   CheckCheck,
   CheckCircle2,
@@ -16,6 +16,7 @@ import {
   Laptop,
   MailWarning,
   PencilLine,
+  ShieldCheck,
   Star,
   ThumbsUp,
   Workflow,
@@ -37,7 +38,7 @@ import { useMe, useStore } from '../../store/useStore';
 import { Avatar, Button, Confirm, Field, IconButton, Input, Menu, MenuItem, Modal, Select, Switch, Textarea } from '../ui';
 import { FileLibraryModal, ForwardModal, isImageMime } from './ChatModals';
 import { startFlow } from '../../lib/chatbot';
-import { cn, dateTimeBR, dayLabel, formatPhone, normalize, nowIso, timeHM, uid } from '../../lib/utils';
+import { cn, dateTimeBR, dayLabel, formatPhone, isWindowOpen, normalize, nowIso, timeHM, uid } from '../../lib/utils';
 import type { Conversation, Message } from '../../types';
 
 const EMOJIS = ['😊', '😉', '😍', '🙏', '👍', '👏', '🎉', '💚', '💙', '✅', '📅', '📍', '💰', '🚗', '⏰', '🤝', '😅', '🙂', '🔥', '⭐'];
@@ -88,7 +89,10 @@ export default function ChatPanel({
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [clearOpen, setClearOpen] = useState(false);
+  const [templateName, setTemplateName] = useState('boas_vindas_crm');
   const isFavorite = Boolean(me && conv.favoriteBy?.includes(me.id));
+  const windowOpen = useMemo(() => isWindowOpen(messages, conv.id), [messages, conv.id]);
+  const requiresTemplate = connection?.type === 'api_oficial' && !windowOpen && mode !== 'note';
   const byId = useMemo(() => new Map(allMessages.map((m) => [m.id, m])), [allMessages]);
   const scheduled = useMemo(() => allScheduled.filter((m) => m.conversationId === conv.id && m.status === 'pendente'), [allScheduled, conv.id]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -108,13 +112,14 @@ export default function ChatPanel({
 
   const submit = () => {
     const body = text.trim();
-    if (!body) return;
+    const tpl = requiresTemplate ? templateName.trim() : undefined;
+    if (!body && !tpl) return;
     // @menções em notas internas: avisa o colega mencionado
     const mentions =
       mode === 'note'
         ? users.filter((u) => u.id !== me?.id && new RegExp(`@${normalize(u.name.split(' ')[0]!)}\\b`).test(normalize(body))).map((u) => u.id)
         : [];
-    sendMessage(conv.id, body, { kind: mode, replyTo: replyTo?.id, mentions });
+    sendMessage(conv.id, body || `[Template: ${tpl}]`, { kind: mode, replyTo: replyTo?.id, mentions, templateName: tpl });
     for (const uid_ of mentions)
       useStore.getState().add('notifications', {
         id: uid('ntf-'),
@@ -346,7 +351,7 @@ export default function ChatPanel({
         {grouped.map((g) => (
           <Fragment key={g.day}>
             <div className="sticky top-0 z-10 my-3 flex justify-center">
-              <span className="rounded-lg bg-white/95 px-3 py-1 text-[11.5px] font-medium text-ink-2 capitalize shadow-sm">{g.day}</span>
+              <span className="rounded-lg border border-line/60 bg-surface/95 px-3 py-1 text-[11.5px] font-medium text-ink-2 capitalize shadow-sm">{g.day}</span>
             </div>
             {g.items.map((m, i) => (
               <Bubble
@@ -385,13 +390,33 @@ export default function ChatPanel({
           </Button>
         </div>
       ) : (
-        <div className={cn('relative border-t px-3 pt-2 pb-3 md:px-4', mode === 'note' ? 'border-[#f0d77a] bg-[#fffbea]' : 'border-line bg-surface')}>
+        <div
+          className={cn(
+            'relative border-t px-3 pt-2 pb-3 md:px-4',
+            mode === 'note' ? 'border-[color-mix(in_oklab,var(--warning)_45%,var(--line))] bg-bubble-note' : 'border-line bg-surface',
+          )}
+        >
           {conv.status === 'aguardando' && !conv.aiEnabled && (
-            <div className="mb-2 flex items-center justify-between rounded-lg bg-[#fff6e0] px-3 py-1.5 text-[12.5px] text-[#8a5a00]">
+            <div className="mb-2 flex items-center justify-between rounded-lg bg-[color-mix(in_oklab,var(--warning)_16%,var(--surface))] px-3 py-1.5 text-[12.5px] text-[color-mix(in_oklab,var(--warning)_75%,var(--ink))]">
               Este lead está na fila aguardando atendimento.
               <button className="font-semibold hover:underline" onClick={() => me && assign(conv.id, me.id)}>
                 Assumir agora
               </button>
+            </div>
+          )}
+          {requiresTemplate && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-[12px] text-brand-700">
+              <ShieldCheck className="h-4 w-4 shrink-0" />
+              <span className="flex-1">
+                <b>API Oficial (Janela de 24h fechada):</b> envie um modelo (Template HSM) aprovado pela Meta para iniciar ou retomar a conversa.
+              </span>
+              <input
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="nome_do_template"
+                aria-label="Nome do template da Meta"
+                className="h-7 w-44 rounded border border-brand-200 bg-surface px-2 font-mono text-[12px] text-ink outline-none focus:border-brand-500"
+              />
             </div>
           )}
           {conv.aiEnabled && (
@@ -442,7 +467,11 @@ export default function ChatPanel({
                 onClick={() => setMode(m)}
                 className={cn(
                   'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium',
-                  mode === m ? (m === 'note' ? 'bg-[#fbe9a6] text-[#7a5600]' : 'bg-brand-50 text-brand-700') : 'text-ink-3 hover:bg-canvas',
+                  mode === m
+                    ? m === 'note'
+                      ? 'bg-[color-mix(in_oklab,var(--warning)_24%,var(--surface))] text-[color-mix(in_oklab,var(--warning)_80%,var(--ink))]'
+                      : 'bg-brand-50 text-brand-700'
+                    : 'text-ink-3 hover:bg-canvas',
                 )}
               >
                 {m === 'note' ? <StickyNote className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
@@ -565,13 +594,19 @@ export default function ChatPanel({
                 setQrIndex(0);
               }}
               onKeyDown={onKey}
-              placeholder={mode === 'note' ? 'Escreva uma nota visível só para a equipe…' : 'Digite uma mensagem'}
-              className={cn('max-h-36 min-h-10 resize-none', mode === 'note' && 'border-[#f0d77a] bg-white')}
+              placeholder={
+                mode === 'note'
+                  ? 'Escreva uma nota visível só para a equipe…'
+                  : requiresTemplate
+                    ? 'Texto de pré-visualização (opcional) para o template…'
+                    : 'Digite uma mensagem'
+              }
+              className={cn('max-h-36 min-h-10 resize-none', mode === 'note' && 'border-[color-mix(in_oklab,var(--warning)_45%,var(--line))] bg-surface')}
               style={{ height: Math.min(144, 40 + Math.max(0, text.split('\n').length - 1) * 20) }}
             />
             <button
               onClick={submit}
-              disabled={!text.trim()}
+              disabled={!text.trim() && !(requiresTemplate && templateName.trim())}
               aria-label="Enviar"
               className={cn(
                 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition disabled:opacity-40',
@@ -741,7 +776,7 @@ function Bubble({
   if (m.kind === 'system') {
     return (
       <div className="my-2 flex justify-center">
-        <span className="rounded-lg bg-[#e1f0f7] px-3 py-1 text-[11.5px] text-[#35586b]">
+        <span className="rounded-lg border border-line/60 bg-surface/90 px-3 py-1 text-[11.5px] text-ink-2">
           {m.body} · {timeHM(m.createdAt)}
         </span>
       </div>
@@ -770,11 +805,11 @@ function Bubble({
       {!isNote && (
         <div className={cn('flex gap-0.5 opacity-0 transition group-hover/msg:opacity-100', out ? 'order-first' : 'order-last')}>
           {onReply && (
-            <button aria-label="Responder" title="Responder" onClick={onReply} className="rounded-full bg-white/90 p-1.5 text-ink-3 shadow-sm hover:text-ink">
+            <button aria-label="Responder" title="Responder" onClick={onReply} className="rounded-full bg-surface/90 p-1.5 text-ink-3 shadow-sm hover:text-ink">
               <CornerUpLeft className="h-3.5 w-3.5" />
             </button>
           )}
-          <button aria-label="Encaminhar" title="Encaminhar" onClick={onForward} className="rounded-full bg-white/90 p-1.5 text-ink-3 shadow-sm hover:text-ink">
+          <button aria-label="Encaminhar" title="Encaminhar" onClick={onForward} className="rounded-full bg-surface/90 p-1.5 text-ink-3 shadow-sm hover:text-ink">
             <Forward className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -782,12 +817,12 @@ function Bubble({
       <div
         className={cn(
           'relative max-w-[78%] rounded-xl px-2.5 pt-1.5 pb-1 text-[14px] leading-snug shadow-[0_1px_0.5px_rgba(0,0,0,0.13)] md:max-w-[65%]',
-          isNote ? 'border border-[#f0d77a] bg-bubble-note' : out ? 'bg-bubble-out' : 'bg-bubble-in',
+          isNote ? 'border border-[color-mix(in_oklab,var(--warning)_45%,var(--line))] bg-bubble-note' : out ? 'bg-bubble-out' : 'bg-bubble-in',
           !grouped && (out ? 'rounded-tr-sm' : 'rounded-tl-sm'),
         )}
       >
         {isNote && (
-          <div className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold text-[#8a6500]">
+          <div className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold text-[color-mix(in_oklab,var(--warning)_80%,var(--ink))]">
             <StickyNote className="h-3 w-3" /> Nota interna · {authorLabel}
           </div>
         )}

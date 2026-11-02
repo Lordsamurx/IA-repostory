@@ -56,6 +56,31 @@ Na opção 2, a Evolution e o banco dela ficam **só na rede interna do Docker**
 | `WHATSAPP_WEBHOOK_URL` | Endereço que a Evolution chama. Padrão: `https://$DOMAIN/api/whatsapp/webhook` |
 | `EVOLUTION_IMAGE` | Só na opção 2: imagem da Evolution (padrão fixo `evoapicloud/evolution-api:v2.1.1`) |
 
+## API oficial (Meta Cloud API)
+
+Pode ser usada no lugar da Evolution ou junto com ela (um número por QR Code e outro oficial, por exemplo). O token fica **só no `.env` do servidor**; o navegador nunca o vê.
+
+1. No [Meta for Developers](https://developers.facebook.com/), crie um app do tipo Business com o produto **WhatsApp** e um **usuário do sistema** com token permanente (`whatsapp_business_messaging` e `whatsapp_business_management`).
+2. No `.env`: `WHATSAPP_META_TOKEN`, `WHATSAPP_META_PHONE_ID`, `WHATSAPP_META_VERIFY_TOKEN` (um texto que você inventa) e `WHATSAPP_META_APP_SECRET`. Depois: `docker compose up -d --build`.
+3. Em WhatsApp → Configuração, cadastre o webhook `https://SEU_DOMINIO/api/whatsapp/meta` com o mesmo verify token e assine o campo **messages**.
+4. No CRM: Conexões → Conectar novo WhatsApp → **API oficial (Meta)**. O servidor confere o token e traz o número verificado; a conexão fica com a instância `meta:<phone id>`.
+
+Como funciona:
+
+- **Recebimento:** `POST /api/whatsapp/meta` só é aceito com a assinatura `X-Hub-Signature-256` válida (sem `WHATSAPP_META_APP_SECRET` a rota responde 503). Os eventos vão para o mesmo worker da Evolution: contato, conversa, NPS → chatbot → IA.
+- **Janela de 24 h:** a Meta só aceita texto livre até 24 h depois da última mensagem do cliente. Fora dela, o chat mostra um aviso e pede o nome de um **template aprovado**; em Disparos há o campo do template. Texto livre fora da janela fica marcado “não enviada” com o motivo, sem chamar a Meta.
+- **Status:** entregue e lida vêm do webhook (`statuses`). Uma recusa posterior da Meta (ex.: template não aprovado) marca a mensagem como “não enviada” com o motivo em português.
+
+| Variável | Para quê |
+|---|---|
+| `WHATSAPP_META_TOKEN` | Token permanente do usuário do sistema |
+| `WHATSAPP_META_PHONE_ID` | Phone Number ID do número |
+| `WHATSAPP_META_VERIFY_TOKEN` | Confere o cadastro do webhook (`hub.verify_token`) |
+| `WHATSAPP_META_APP_SECRET` | Confere a assinatura de cada evento do webhook (obrigatório para receber) |
+| `WHATSAPP_META_BASE_URL` | Opcional. Padrão `https://graph.facebook.com/v21.0` |
+
+(a validar: testado contra uma Meta simulada com o formato da documentação da Cloud API, ainda não com um número real; templates com variáveis ainda não são suportados, só os sem parâmetros)
+
 ## VPS compartilhada (Hermes, Tailscale, outros serviços)
 
 O CRM pode dividir a VPS com outros sistemas. O Caddy do CRM vira o único "porteiro" das portas 80/443 públicas e encaminha cada domínio para o serviço certo.
@@ -84,7 +109,8 @@ O instalador usa o próprio **Caddy** nas portas 80/443. Se a VPS já tem EasyPa
 - **Formato da Evolution:** os campos seguem a documentação v2 (`/instance/create` com `integration: WHATSAPP-BAILEYS` e `webhook` aninhado, `/message/sendText` com `{ number, text }`, eventos `MESSAGES_UPSERT`, `MESSAGES_UPDATE`, `CONNECTION_UPDATE`). A própria documentação deles tem trechos contraditórios, e versões diferentes mudam detalhes. O código aceita as variações conhecidas e foi testado contra um simulador, não contra uma Evolution real. **Confirme com a sua Evolution na Fase 5 do [roteiro de teste](ROTEIRO-TESTE-VPS.md).**
 - **Servidor fora do ar:** mensagens recebidas nesse período dependem de a Evolution reenviar o webhook. Mensagens de saída com mais de 10 minutos não são enviadas quando o servidor volta, para não disparar respostas velhas.
 - **Risco de banimento:** QR Code é conexão não oficial. Use número dedicado, evite disparo em massa para quem não pediu e prefira a API oficial para volume.
-- **API oficial (Meta) e provedores parceiros** continuam só cadastrais. A ponte (`src/lib/whatsapp.ts` e a caixa de saída) já é independente do gateway: para a Cloud API, falta um cliente como `server/whatsapp.mjs` e a rota de verificação `hub.verify_token`.
+- **Provedores parceiros** (Z-API, 360dialog, Twilio, Gupshup) continuam só cadastrais. A ponte (`src/lib/whatsapp.ts` e a caixa de saída) é independente do gateway: cada um precisa de um cliente como `server/whatsapp.mjs` ou `server/meta.mjs`.
+- **Templates da Meta com variáveis** (`{{1}}`) ainda não são enviados: só templates sem parâmetros.
 
 ## Testar sem WhatsApp
 

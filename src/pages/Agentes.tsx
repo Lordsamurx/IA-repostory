@@ -71,11 +71,11 @@ export default function Agentes() {
       />
       <div className="p-6">
         {serverAI === false && (
-          <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#fde7b0] bg-[#fffaf0] p-4 text-[13px] text-[#6b4a00]">
+          <div className="mb-4 flex items-start gap-3 rounded-xl border border-[color-mix(in_oklab,var(--warning)_35%,var(--line))] bg-[color-mix(in_oklab,var(--warning)_14%,var(--surface))] p-4 text-[13px] text-[color-mix(in_oklab,var(--warning)_80%,var(--ink))]">
             <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
               <b>Motor local ativo.</b> Os agentes respondem pela base de conhecimento, perguntas de qualificação e regras de transferência. Para respostas geradas por um modelo de IA
-              (Claude ou GPT), configure <code className="rounded bg-white px-1">AI_API_KEY</code> no servidor — veja o README.
+              (Claude ou GPT), configure <code className="rounded bg-surface px-1">AI_API_KEY</code> no servidor — veja o README.
             </div>
           </div>
         )}
@@ -445,9 +445,9 @@ function Playground({ agent }: { agent: Agent }) {
         {history.length === 0 && <p className="mt-10 text-center text-[13px] text-ink-3">Escreva como se fosse um cliente no WhatsApp. Ex.: “quanto custa o implante?”</p>}
         {history.map((h, i) => (
           <div key={i} className={cn('flex', h.role === 'user' ? 'justify-start' : 'justify-end')}>
-            <div className={cn('max-w-[85%] rounded-xl px-3 py-2 text-[13.5px] whitespace-pre-wrap shadow-sm', h.role === 'user' ? 'bg-white' : 'bg-bubble-out')}>
+            <div className={cn('max-w-[85%] rounded-xl px-3 py-2 text-[13.5px] whitespace-pre-wrap shadow-sm', h.role === 'user' ? 'bg-bubble-in' : 'bg-bubble-out')}>
               {h.content}
-              {h.handoff && <div className="mt-1 text-[11px] font-medium text-[#8a5a00]">↪ Transferiria para humano</div>}
+              {h.handoff && <div className="mt-1 text-[11px] font-medium text-[color-mix(in_oklab,var(--warning)_80%,var(--ink))]">↪ Transferiria para humano</div>}
             </div>
           </div>
         ))}

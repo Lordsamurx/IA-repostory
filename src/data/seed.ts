@@ -95,6 +95,7 @@ export const DEFAULT_SETTINGS: Settings = {
     'Olá! Nosso horário de atendimento é de segunda a sexta, das 8h às 18h. Assim que voltarmos, respondemos você. 😊',
   autoAssign: true,
   aiProvider: 'anthropic',
+  theme: 'light',
   nps: {
     enabled: true,
     autoOnFinish: true,

@@ -16,10 +16,12 @@ import {
   Megaphone,
   Menu as MenuIcon,
   MessageSquare,
+  Moon,
   Package,
   Plug,
   Repeat,
   Settings,
+  Sun,
   Users,
   Workflow,
 } from 'lucide-react';
@@ -189,6 +191,15 @@ export default function AppLayout() {
             <MenuIcon className="h-5 w-5" />
           </button>
           <div className="flex-1" />
+
+          <button
+            onClick={() => useStore.getState().setSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
+            aria-label={settings.theme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+            title={settings.theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 transition-colors hover:bg-canvas hover:text-ink"
+          >
+            {settings.theme === 'dark' ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+          </button>
 
           <Menu
             width={340}

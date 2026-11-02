@@ -19,7 +19,7 @@ type Size = 'sm' | 'md' | 'lg';
 
 const variants: Record<Variant, string> = {
   primary: 'bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-700 shadow-sm',
-  secondary: 'bg-white text-ink border border-line hover:bg-canvas',
+  secondary: 'bg-surface text-ink border border-line hover:bg-canvas',
   ghost: 'text-ink-2 hover:bg-canvas hover:text-ink',
   danger: 'bg-critical text-white hover:brightness-95',
   soft: 'bg-brand-50 text-brand-700 hover:bg-brand-100',
@@ -80,7 +80,7 @@ export function IconButton({
 
 /* ---------------------------------------------------------------- Inputs */
 const field =
-  'w-full rounded-lg border border-line bg-white px-3 text-sm text-ink placeholder:text-ink-3 outline-none transition focus:border-brand-500 focus:ring-3 focus:ring-brand-100 disabled:bg-canvas';
+  'w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-ink-3 outline-none transition focus:border-brand-500 focus:ring-3 focus:ring-brand-100 disabled:bg-canvas';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(({ className, ...p }, ref) => (
   <input ref={ref} className={cn(field, 'h-9', className)} {...p} />
@@ -127,7 +127,7 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
       onClick={() => onChange(!checked)}
       className={cn(
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
-        checked ? 'bg-brand-500' : 'bg-[#cfd6dd]',
+        checked ? 'bg-brand-500' : 'bg-line',
       )}
     >
       <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-4.5' : 'translate-x-0.5')} />
@@ -149,7 +149,7 @@ export function Avatar({ name, color, size = 36, presence }: { name: string; col
         <span
           title={presence}
           className={cn(
-            'absolute right-0 bottom-0 h-2.5 w-2.5 rounded-full ring-2 ring-white',
+            'absolute right-0 bottom-0 h-2.5 w-2.5 rounded-full ring-2 ring-surface',
             presence === 'online' ? 'bg-good' : presence === 'ausente' ? 'bg-warning' : 'bg-ink-3',
           )}
         />
@@ -162,10 +162,10 @@ export function Badge({ children, className, tone = 'neutral' }: { children: Rea
   const tones = {
     neutral: 'bg-canvas text-ink-2 border-line',
     brand: 'bg-brand-50 text-brand-700 border-brand-100',
-    good: 'bg-[#e8f6e8] text-[#0b6b0b] border-[#c9ebc9]',
-    warning: 'bg-[#fff6e0] text-[#8a5a00] border-[#fde7b0]',
-    critical: 'bg-[#fdecec] text-[#a52828] border-[#f7cfcf]',
-    info: 'bg-[#e9f1fc] text-[#1c5cab] border-[#cde2fb]',
+    good: 'bg-[color-mix(in_oklab,var(--good)_14%,var(--surface))] text-[color-mix(in_oklab,var(--good)_78%,var(--ink))] border-[color-mix(in_oklab,var(--good)_28%,var(--surface))]',
+    warning: 'bg-[color-mix(in_oklab,var(--warning)_16%,var(--surface))] text-[color-mix(in_oklab,var(--warning)_75%,var(--ink))] border-[color-mix(in_oklab,var(--warning)_32%,var(--surface))]',
+    critical: 'bg-[color-mix(in_oklab,var(--critical)_14%,var(--surface))] text-[color-mix(in_oklab,var(--critical)_80%,var(--ink))] border-[color-mix(in_oklab,var(--critical)_30%,var(--surface))]',
+    info: 'bg-[color-mix(in_oklab,#2a78d6_14%,var(--surface))] text-[color-mix(in_oklab,#2a78d6_80%,var(--ink))] border-[color-mix(in_oklab,#2a78d6_30%,var(--surface))]',
   } as const;
   return (
     <span className={cn('inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap', tones[tone], className)}>
@@ -178,7 +178,7 @@ export function TagChip({ name, color, onRemove }: { name: string; color: string
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap"
-      style={{ background: `color-mix(in oklab, ${color} 14%, white)`, color: `color-mix(in oklab, ${color} 75%, black)` }}
+      style={{ background: `color-mix(in oklab, ${color} 16%, var(--mix-surface))`, color: `color-mix(in oklab, ${color} 78%, var(--mix-ink))` }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
       {name}

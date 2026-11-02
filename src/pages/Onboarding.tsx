@@ -81,7 +81,7 @@ export default function Onboarding() {
               <span
                 className={cn(
                   'flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-semibold',
-                  i < step ? 'bg-brand-500 text-white' : i === step ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-500' : 'bg-white text-ink-3 ring-1 ring-line',
+                  i < step ? 'bg-brand-500 text-white' : i === step ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-500' : 'bg-surface text-ink-3 ring-1 ring-line',
                 )}
               >
                 {i < step ? <Check className="h-3.5 w-3.5" /> : i + 1}

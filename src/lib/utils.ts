@@ -118,6 +118,30 @@ export function applyBrand(color: string) {
   document.documentElement.style.setProperty('--brand', color);
 }
 
+export function applyTheme(theme: 'light' | 'dark' | 'system' = 'light') {
+  if (typeof document === 'undefined') return;
+  const prefersDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  const isDark = theme === 'dark' || (theme === 'system' && prefersDark);
+  document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+}
+
+/** Verifica se a janela de 24h da API Oficial do WhatsApp está aberta (última mensagem recebida < 24h). */
+export function isWindowOpen(
+  messages: readonly { conversationId: string; direction: 'in' | 'out'; createdAt: string }[],
+  conversationId: string,
+  now = Date.now(),
+): boolean {
+  let latestIn = 0;
+  for (const m of messages) {
+    if (m.conversationId === conversationId && m.direction === 'in') {
+      const t = new Date(m.createdAt).getTime();
+      if (t > latestIn) latestIn = t;
+    }
+  }
+  return latestIn > 0 && now - latestIn < 24 * 60 * 60 * 1000;
+}
+
 export function fillTemplate(text: string, vars: Record<string, string | undefined>) {
   return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k: string) => vars[k] ?? '');
 }

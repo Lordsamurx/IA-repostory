@@ -220,7 +220,7 @@ export default function Inbox() {
               >
                 <div className="relative flex shrink-0 self-start">
                   <Avatar name={ct?.name ?? '?'} color={ct?.color} size={44} />
-                  {conn && <span className="absolute -right-0.5 -bottom-0.5 h-3.5 w-3.5 rounded-full ring-2 ring-white" style={{ background: conn.color }} title={conn.name} />}
+                  {conn && <span className="absolute -right-0.5 -bottom-0.5 h-3.5 w-3.5 rounded-full ring-2 ring-surface" style={{ background: conn.color }} title={conn.name} />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
@@ -234,7 +234,11 @@ export default function Inbox() {
                     {c.unread > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[11px] font-semibold text-white">{c.unread}</span>}
                   </div>
                   <div className="mt-1.5 flex items-center gap-1.5">
-                    {c.status === 'aguardando' && <span className="rounded bg-[#fff6e0] px-1.5 py-px text-[10.5px] font-medium text-[#8a5a00]">Na fila</span>}
+                    {c.status === 'aguardando' && (
+                      <span className="rounded bg-[color-mix(in_oklab,var(--warning)_18%,var(--surface))] px-1.5 py-px text-[10.5px] font-medium text-[color-mix(in_oklab,var(--warning)_78%,var(--ink))]">
+                        Na fila
+                      </span>
+                    )}
                     {c.aiEnabled && (
                       <span className="inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-px text-[10.5px] font-medium text-brand-700">
                         <Bot className="h-3 w-3" /> IA
@@ -264,7 +268,7 @@ export default function Inbox() {
         </>
       ) : (
         <div className="chat-wallpaper hidden flex-1 items-center justify-center md:flex">
-          <div className="max-w-sm rounded-2xl bg-white/85 p-8 text-center shadow-card backdrop-blur">
+          <div className="max-w-sm rounded-2xl border border-line/60 bg-surface/90 p-8 text-center shadow-card backdrop-blur">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-brand-50 text-brand-600">
               <MessagesSquare className="h-6 w-6" />
             </div>

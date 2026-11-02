@@ -6,13 +6,22 @@ import { cn, dateBR, formatPhone, nowIso, onlyDigits, pickColor, uid } from '../
 import type { Connection, ConnectionType } from '../types';
 import { apiPost, serverHealth, type WhatsappState } from '../lib/api';
 
-/** O servidor tem gateway de WhatsApp (Evolution) configurado? null = verificando. */
-function useGateway() {
-  const [on, setOn] = useState<boolean | null>(null);
+/** O servidor tem gateway de WhatsApp (Evolution) e/ou API oficial (Meta) configurados? null = verificando. */
+function useGateways() {
+  const [on, setOn] = useState<{ whatsapp: boolean; meta: boolean } | null>(null);
   useEffect(() => {
-    void serverHealth().then((h) => setOn(Boolean(h?.whatsapp)));
+    void serverHealth().then((h) => setOn({ whatsapp: Boolean(h?.whatsapp), meta: Boolean(h?.meta) }));
   }, []);
   return on;
+}
+
+/** Conexão ligada ao número da Meta configurado no servidor (instância "meta:<phone id>"). */
+const isMeta = (c: Connection) => Boolean(c.instance?.startsWith('meta:'));
+
+interface MetaLink {
+  instance: string;
+  phone: string;
+  name: string;
 }
 
 const TYPE: Record<ConnectionType, { label: string; desc: string; icon: typeof QrCode }> = {
@@ -51,10 +60,11 @@ export default function Conexoes() {
   const [editing, setEditing] = useState<Connection | null>(null);
   const [qrFor, setQrFor] = useState<Connection | null>(null);
   const [deleting, setDeleting] = useState<Connection | null>(null);
-  const gateway = useGateway();
+  const gateways = useGateways();
+  const gateway = gateways?.whatsapp ?? null;
 
   const disconnect = async (c: Connection) => {
-    if (c.instance && gateway) {
+    if (c.instance && gateway && !isMeta(c)) {
       try {
         await apiPost<WhatsappState>('/api/whatsapp/disconnect', { connectionId: c.id });
       } catch (e) {
@@ -67,7 +77,7 @@ export default function Conexoes() {
 
   const removeConnection = async (c: Connection) => {
     // o número sai do gateway também (senão continuaria recebendo mensagens)
-    if (c.instance && gateway) await apiPost('/api/whatsapp/disconnect', { connectionId: c.id }).catch(() => undefined);
+    if (c.instance && gateway && !isMeta(c)) await apiPost('/api/whatsapp/disconnect', { connectionId: c.id }).catch(() => undefined);
     remove('connections', c.id);
     toast('Conexão excluída');
   };
@@ -138,7 +148,7 @@ export default function Conexoes() {
           );
         })}
 
-        <div className="flex gap-3 rounded-xl border border-[#f7cfcf] bg-[#fdf3f3] p-4 text-[13px] text-[#7a2020]">
+        <div className="flex gap-3 rounded-xl border border-[color-mix(in_oklab,var(--critical)_30%,var(--line))] bg-[color-mix(in_oklab,var(--critical)_12%,var(--surface))] p-4 text-[13px] text-[color-mix(in_oklab,var(--critical)_82%,var(--ink))]">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <b>Importante sobre a conexão por QR Code:</b> ela usa uma conexão não oficial do WhatsApp. Funciona bem, mas existe risco de banimento do número. Use um
@@ -148,7 +158,7 @@ export default function Conexoes() {
         </div>
       </div>
 
-      <NewConnectionModal open={creating} onClose={() => setCreating(false)} onQr={(c) => setQrFor(c)} />
+      <NewConnectionModal open={creating} onClose={() => setCreating(false)} onQr={(c) => setQrFor(c)} metaOnServer={Boolean(gateways?.meta)} />
       {editing && <EditConnectionModal connection={editing} onClose={() => setEditing(null)} />}
       {qrFor && (gateway && qrFor.type === 'qrcode' ? <RealQrModal connection={qrFor} onClose={() => setQrFor(null)} /> : <QrModal connection={qrFor} onClose={() => setQrFor(null)} />)}
       <Confirm
@@ -162,7 +172,7 @@ export default function Conexoes() {
   );
 }
 
-function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: () => void; onQr: (c: Connection) => void }) {
+function NewConnectionModal({ open, onClose, onQr, metaOnServer }: { open: boolean; onClose: () => void; onQr: (c: Connection) => void; metaOnServer: boolean }) {
   const departments = useStore((s) => s.departments);
   const { add, toast } = useStore.getState();
   const [type, setType] = useState<ConnectionType>('qrcode');
@@ -172,25 +182,40 @@ function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: (
   const [provider, setProvider] = useState('Z-API');
   const [token, setToken] = useState('');
   const [phoneId, setPhoneId] = useState('');
+  const [linking, setLinking] = useState(false);
+  // API oficial com a Meta configurada no servidor: o número vem de lá, o token nunca passa pelo navegador
+  const metaReal = type === 'api_oficial' && metaOnServer;
 
-  const create = () => {
+  const create = async () => {
+    let link: MetaLink | undefined;
+    if (metaReal) {
+      setLinking(true);
+      try {
+        link = await apiPost<MetaLink>('/api/whatsapp/meta/link', {});
+      } catch (e) {
+        return toast(`Não foi possível ligar a API oficial: ${(e as Error).message}`, 'error');
+      } finally {
+        setLinking(false);
+      }
+    }
     const c: Connection = {
       id: uid('con-'),
       name: name.trim(),
-      phone: onlyDigits(phone),
+      phone: link?.phone || onlyDigits(phone),
       type,
       status: type === 'qrcode' ? 'aguardando_qr' : 'conectado',
       departmentId: dep,
       color: pickColor(name + Date.now()),
       createdAt: nowIso(),
+      ...(link ? { instance: link.instance } : {}),
     };
     add('connections', c);
     onClose();
     if (type === 'qrcode') onQr(c);
-    else toast(`${TYPE[type].label} conectado`);
+    else toast(link ? `API oficial conectada${link.name ? ` (${link.name})` : ''}` : `${TYPE[type].label} conectado`);
   };
 
-  const validApi = type === 'qrcode' || (onlyDigits(phone).length >= 12 && token.trim() && (type === 'parceiro' || phoneId.trim()));
+  const validApi = type === 'qrcode' || metaReal || (onlyDigits(phone).length >= 12 && token.trim() && (type === 'parceiro' || phoneId.trim()));
 
   return (
     <Modal
@@ -203,7 +228,7 @@ function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: (
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button disabled={!name.trim() || !validApi} onClick={create}>
+          <Button disabled={!name.trim() || !validApi || linking} onClick={() => void create()}>
             {type === 'qrcode' ? 'Gerar QR Code' : 'Conectar'}
           </Button>
         </>
@@ -238,7 +263,12 @@ function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: (
             ))}
           </Select>
         </Field>
-        {type !== 'qrcode' && (
+        {metaReal && (
+          <p className="flex gap-2 rounded-lg bg-brand-50 p-3 text-[12.5px] text-brand-700 sm:col-span-2">
+            <ShieldCheck className="h-4 w-4 shrink-0" /> A API oficial já está configurada no servidor (WHATSAPP_META_*). O número e o token vêm de lá; aqui você só escolhe o nome e a fila.
+          </p>
+        )}
+        {type !== 'qrcode' && !metaReal && (
           <>
             <Field label="Número com DDI e DDD">
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="5531999990000" />
@@ -259,7 +289,11 @@ function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: (
             <Field
               label={type === 'api_oficial' ? 'Token de acesso permanente' : 'Token / API key do provedor'}
               className="sm:col-span-2"
-              hint="Nesta versão o envio real funciona pela conexão QR Code (Evolution API). Para API oficial e parceiros o token só é conferido aqui e não é salvo (veja docs/WHATSAPP.md)."
+              hint={
+                type === 'api_oficial'
+                  ? 'Sem WHATSAPP_META_TOKEN e WHATSAPP_META_PHONE_ID no servidor a conexão fica simulada; o token não é salvo aqui (veja docs/WHATSAPP.md).'
+                  : 'Provedores parceiros ainda não enviam de verdade: o token só é conferido aqui e não é salvo (veja docs/WHATSAPP.md).'
+              }
             >
               <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
             </Field>
@@ -267,7 +301,7 @@ function NewConnectionModal({ open, onClose, onQr }: { open: boolean; onClose: (
         )}
       </div>
       {type === 'qrcode' && (
-        <div className="mt-4 flex gap-2.5 rounded-lg bg-[#fdf3f3] p-3 text-[12.5px] text-[#7a2020]">
+        <div className="mt-4 flex gap-2.5 rounded-lg bg-[color-mix(in_oklab,var(--critical)_12%,var(--surface))] p-3 text-[12.5px] text-[color-mix(in_oklab,var(--critical)_82%,var(--ink))]">
           <AlertTriangle className="h-4 w-4 shrink-0" /> Use um número dedicado ao atendimento. A conexão por QR não é oficial e pode levar a banimento em caso de disparos em massa.
         </div>
       )}
@@ -391,7 +425,15 @@ function QrModal({ connection, onClose }: { connection: Connection; onClose: () 
     <Modal open onClose={onClose} title={`Conectar “${connection.name}”`} size="lg">
       <div className="grid gap-6 sm:grid-cols-[auto_1fr]">
         <div className="flex flex-col items-center gap-2">
-          <div className="rounded-2xl border border-line p-3">{step === 'qr' ? <FakeQr seed={seed} /> : <div className="flex h-56 w-56 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-brand-500" /></div>}</div>
+          <div className="rounded-2xl border border-line bg-white p-3">
+            {step === 'qr' ? (
+              <FakeQr seed={seed} />
+            ) : (
+              <div className="flex h-56 w-56 items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
+              </div>
+            )}
+          </div>
           <button className="flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink" onClick={() => setSeed(String(Date.now()))}>
             <RefreshCw className="h-3.5 w-3.5" /> Gerar novo QR
           </button>
@@ -497,7 +539,7 @@ function RealQrModal({ connection, onClose }: { connection: Connection; onClose:
             ))}
           </ol>
           {error ? (
-            <div className="mt-5 rounded-xl border border-[#f7cfcf] bg-[#fdf3f3] p-3 text-[12.5px] text-[#7a2020]">
+            <div className="mt-5 rounded-xl border border-[color-mix(in_oklab,var(--critical)_30%,var(--line))] bg-[color-mix(in_oklab,var(--critical)_12%,var(--surface))] p-3 text-[12.5px] text-[color-mix(in_oklab,var(--critical)_82%,var(--ink))]">
               <b>Não foi possível gerar o QR:</b> {error}. Confira EVOLUTION_API_URL, EVOLUTION_API_KEY e WHATSAPP_WEBHOOK_TOKEN no .env do servidor.
             </div>
           ) : (

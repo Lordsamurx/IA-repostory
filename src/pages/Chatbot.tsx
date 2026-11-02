@@ -284,8 +284,8 @@ function FlowEditor({ flow, onClose }: { flow: ChatbotFlow; onClose: () => void 
             )}
             {chat.map((m, i) => (
               <div key={i} className={cn('flex flex-col', m.from === 'user' ? 'items-start' : 'items-end')}>
-                {m.text && <div className={cn('max-w-[88%] rounded-xl px-3 py-2 text-[13px] whitespace-pre-wrap shadow-sm', m.from === 'user' ? 'bg-white' : 'bg-bubble-out')}>{m.text.replace(/\*/g, '')}</div>}
-                {m.note && <div className="mt-1 rounded-md bg-[#e1f0f7] px-2 py-0.5 text-[11px] text-[#35586b]">{m.note}</div>}
+                {m.text && <div className={cn('max-w-[88%] rounded-xl px-3 py-2 text-[13px] whitespace-pre-wrap shadow-sm', m.from === 'user' ? 'bg-bubble-in' : 'bg-bubble-out')}>{m.text.replace(/\*/g, '')}</div>}
+                {m.note && <div className="mt-1 rounded-md border border-line/60 bg-surface/90 px-2 py-0.5 text-[11px] text-ink-2">{m.note}</div>}
               </div>
             ))}
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ThumbsUp, Building2, CheckCircle2, Circle, Database, ListPlus, Download, KeyRound, Palette, Pencil, Plus, Server, Tag as TagIcon, Trash2, Upload, Users, Wrench, Zap } from 'lucide-react';
+import { ThumbsUp, Building2, CheckCircle2, Circle, Database, ListPlus, Download, KeyRound, Monitor, Moon, Palette, Pencil, Plus, Server, Sun, Tag as TagIcon, Trash2, Upload, Users, Wrench, Zap } from 'lucide-react';
 import { useMe, useStore } from '../store/useStore';
 import { Avatar, Badge, Button, Card, Confirm, Field, Input, Modal, PageHeader, Select, Switch, TagChip, Textarea } from '../components/ui';
 import { cn, fieldVar, pickColor, SWATCHES, uid } from '../lib/utils';
@@ -8,7 +8,7 @@ import { hashPassword } from '../lib/password';
 import { checkServerAI } from '../lib/ai';
 import { serverHealth, type ServerHealth } from '../lib/api';
 import { COLLECTIONS, type DataState } from '../data/seed';
-import type { CustomFieldType, Role, User, Weekday } from '../types';
+import type { CustomFieldType, Role, ThemeMode, User, Weekday } from '../types';
 
 type Section = 'empresa' | 'nps' | 'equipe' | 'departamentos' | 'etiquetas' | 'campos' | 'respostas' | 'aparencia' | 'integracoes' | 'instalacao' | 'dados';
 
@@ -51,7 +51,9 @@ export default function Configuracoes() {
         </nav>
         <div className="max-w-3xl">
           {!isAdmin && section !== 'instalacao' && (
-            <div className="mb-4 rounded-lg bg-[#fff6e0] px-4 py-2.5 text-[13px] text-[#8a5a00]">Somente administradores podem alterar estas configurações.</div>
+            <div className="mb-4 rounded-lg bg-[color-mix(in_oklab,var(--warning)_16%,var(--surface))] px-4 py-2.5 text-[13px] text-[color-mix(in_oklab,var(--warning)_78%,var(--ink))]">
+              Somente administradores podem alterar estas configurações.
+            </div>
           )}
           <fieldset disabled={!isAdmin && section !== 'instalacao'} className="min-w-0">
             {section === 'empresa' && <Empresa />}
@@ -433,12 +435,37 @@ function Respostas() {
 function Aparencia() {
   const settings = useStore((s) => s.settings);
   const { setSettings, toast } = useStore.getState();
+  const currentTheme: ThemeMode = settings.theme ?? 'light';
+  const themes: { id: ThemeMode; label: string; desc: string; icon: typeof Sun }[] = [
+    { id: 'light', label: 'Claro', desc: 'Visual clássico e iluminado', icon: Sun },
+    { id: 'dark', label: 'Escuro elegante', desc: 'Tons suaves de grafite para menor fadiga visual', icon: Moon },
+    { id: 'system', label: 'Sistema', desc: 'Acompanha a preferência do dispositivo', icon: Monitor },
+  ];
   return (
     <Card className="space-y-5 p-5">
       <div>
         <h2 className="font-semibold">Deixe com a sua cara</h2>
         <p className="text-[12.5px] text-ink-3">O projeto é open source (MIT): você pode colocar sua marca e oferecer o CRM aos seus clientes. As mudanças aparecem na hora.</p>
       </div>
+      <Field label="Tema da interface">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {themes.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setSettings({ theme: t.id })}
+              className={cn(
+                'flex flex-col items-start rounded-xl border p-3.5 text-left transition',
+                currentTheme === t.id ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-100' : 'border-line hover:border-brand-300',
+              )}
+            >
+              <t.icon className={cn('h-4 w-4', currentTheme === t.id ? 'text-brand-600' : 'text-ink-3')} />
+              <div className="mt-2 text-[13px] font-semibold">{t.label}</div>
+              <div className="mt-0.5 text-[11.5px] text-ink-3">{t.desc}</div>
+            </button>
+          ))}
+        </div>
+      </Field>
       <Field label="Nome exibido no menu e no login">
         <Input defaultValue={settings.logoText} onBlur={(e) => e.target.value.trim() && setSettings({ logoText: e.target.value.trim() })} />
       </Field>
@@ -463,7 +490,7 @@ function Aparencia() {
         </div>
       </div>
       <div className="flex justify-end">
-        <Button variant="secondary" onClick={() => (setSettings({ brandColor: '#00a389', logoText: 'LeadFlow' }), toast('Aparência restaurada'))}>
+        <Button variant="secondary" onClick={() => (setSettings({ brandColor: '#00a389', logoText: 'LeadFlow', theme: 'light' }), toast('Aparência restaurada'))}>
           Restaurar padrão
         </Button>
       </div>
@@ -512,6 +539,7 @@ function Integracoes() {
         <dl className="mt-3 space-y-2 text-[13px]">
           {[
             ['Saúde do servidor', `${origin}/api/health`],
+            ['Webhook da API oficial (Meta)', `${origin}/api/whatsapp/meta`],
             ['Resposta de IA (uso interno)', `${origin}/api/ai/reply`],
             ['Webhook do WhatsApp (Evolution, configurado sozinho ao conectar)', `${origin}/api/whatsapp/webhook`],
           ].map(([k, v]) => (

@@ -113,6 +113,9 @@ export interface Message {
   delivery?: 'sent' | 'failed';
   /** Motivo da falha de envio, mostrado ao atendente. */
   deliveryError?: string;
+  /** Template aprovado pela Meta (API oficial): obrigatório com a janela de 24 h fechada. */
+  templateName?: string;
+  templateLang?: string;
 }
 
 export interface Stage {
@@ -265,6 +268,8 @@ export interface Campaign {
   sales: number;
 }
 
+export type ThemeMode = 'light' | 'dark' | 'system';
+
 export interface Settings {
   companyName: string;
   businessType: string;
@@ -277,6 +282,7 @@ export interface Settings {
   autoAssign: boolean;
   nps: { enabled: boolean; autoOnFinish: boolean; question: string; thanks: string };
   aiProvider: 'anthropic' | 'openai';
+  theme?: ThemeMode;
 }
 
 export interface Notification {
@@ -326,6 +332,9 @@ export interface Broadcast {
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;
+  /** Nome do template HSM (obrigatório na API Oficial fora da janela de 24h) */
+  templateName?: string;
+  templateLang?: string;
 }
 
 export type BotActionType = 'nenhuma' | 'transferir' | 'etiqueta' | 'funil' | 'ia' | 'finalizar';

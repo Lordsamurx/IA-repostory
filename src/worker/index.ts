@@ -19,6 +19,7 @@ import { startAutomation, stopAutomation } from '../lib/automation';
 import {
   applyAck,
   applyConnectionState,
+  applyFailure,
   markFailed,
   markSent,
   pendingOutbound,
@@ -30,6 +31,7 @@ import {
 export type WorkerEvent =
   | { type: 'message'; message: InboundMessage }
   | { type: 'ack'; id: string; status: 'delivered' | 'read' }
+  | { type: 'failed'; id: string; error: string }
   | { type: 'connection'; instance: string; state: 'open' | 'close' | 'connecting'; phone?: string };
 
 export interface WorkerOptions {
@@ -39,6 +41,8 @@ export interface WorkerOptions {
   ai?: (body: Record<string, unknown>) => Promise<AiReply>;
   /** Envio pelo gateway. Ausente = mensagens de conexões reais ficam aguardando. */
   sendText?: (instance: string, phone: string, text: string) => Promise<{ id?: string }>;
+  /** Envio de template aprovado (API oficial da Meta). */
+  sendTemplate?: (instance: string, phone: string, name: string, lang: string) => Promise<{ id?: string }>;
   log?: (...args: unknown[]) => void;
   /** Mensagens mais antigas que isso não são enviadas (servidor voltando de uma queda). */
   outboxMaxAgeMs?: number;
@@ -104,13 +108,20 @@ export async function startWorker(opts: WorkerOptions): Promise<Worker> {
     if (!opts.sendText) return;
     for (const item of pendingOutbound(maxAge)) {
       if (inflight.has(item.messageId)) continue;
+      if (item.template && !opts.sendTemplate) {
+        markFailed(item.messageId, 'API oficial da Meta não configurada no servidor');
+        continue;
+      }
       inflight.add(item.messageId);
-      opts
-        .sendText(item.instance, item.phone, item.text)
+      const sending = item.template
+        ? opts.sendTemplate!(item.instance, item.phone, item.template.name, item.template.lang)
+        : opts.sendText(item.instance, item.phone, item.text);
+      sending
         .then((r) => markSent(item.messageId, r.id))
         .catch((e: unknown) => {
           log('[worker] envio falhou', item.messageId, e instanceof Error ? e.message : e);
-          markFailed(item.messageId, 'O WhatsApp não aceitou o envio. Confira a conexão e tente de novo.');
+          const reason = (e as { userMessage?: unknown } | null)?.userMessage;
+          markFailed(item.messageId, typeof reason === 'string' ? reason : 'O WhatsApp não aceitou o envio. Confira a conexão e tente de novo.');
         })
         .finally(() => inflight.delete(item.messageId));
     }
@@ -143,6 +154,8 @@ export async function startWorker(opts: WorkerOptions): Promise<Worker> {
           return receiveWhatsApp(event.message);
         case 'ack':
           return applyAck(event.id, event.status);
+        case 'failed':
+          return applyFailure(event.id, event.error);
         case 'connection':
           return applyConnectionState(event.instance, event.state, event.phone);
       }

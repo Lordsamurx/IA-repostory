@@ -89,7 +89,7 @@ export default function Login() {
         <Field label="Senha">
           <Input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
         </Field>
-        {error && <p className="rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] text-[#a52828]">{error}</p>}
+        {error && <p className="rounded-lg bg-[color-mix(in_oklab,var(--critical)_14%,var(--surface))] px-3 py-2 text-[13px] text-[color-mix(in_oklab,var(--critical)_80%,var(--ink))]">{error}</p>}
         <Button type="submit" size="lg" className="w-full" disabled={loading}>
           {loading && <Loader2 className="h-4 w-4 animate-spin" />} Entrar
         </Button>

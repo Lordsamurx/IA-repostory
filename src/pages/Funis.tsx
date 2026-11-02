@@ -299,7 +299,7 @@ export default function Funis() {
                   key={s.id}
                   {...dropProps(s.id)}
                   className={cn(
-                    'flex h-full w-[288px] shrink-0 flex-col rounded-2xl bg-[#e9edf1] transition',
+                    'flex h-full w-[288px] shrink-0 flex-col rounded-2xl bg-[color-mix(in_oklab,var(--ink)_6%,var(--canvas))] transition',
                     overStage === s.id && (dragStage ? 'ring-2 ring-ink-3' : 'bg-brand-100 ring-2 ring-brand-400'),
                     dragStage === s.id && 'opacity-50',
                   )}
@@ -329,19 +329,19 @@ export default function Funis() {
                             setRenaming(null);
                           }}
                           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-                          className="min-w-0 flex-1 rounded border border-brand-400 bg-white px-1.5 text-[13.5px] font-semibold outline-none"
+                          className="min-w-0 flex-1 rounded border border-brand-400 bg-surface px-1.5 text-[13.5px] font-semibold outline-none"
                         />
                       ) : (
                         <span className="truncate text-[13.5px] font-semibold" onDoubleClick={() => setRenaming(s.id)}>
                           {s.name}
                         </span>
                       )}
-                      <span className="rounded-full bg-white px-1.5 text-[11px] font-medium text-ink-2">{items.length}</span>
+                      <span className="rounded-full bg-surface px-1.5 text-[11px] font-medium text-ink-2">{items.length}</span>
                       <span className="ml-auto text-[12px] font-medium text-ink-2 tabular-nums">{moneyShort(items.reduce((a, d) => a + d.value, 0))}</span>
                       <Menu
                         width={210}
                         trigger={(t) => (
-                          <button onClick={t} aria-label={`Opções da etapa ${s.name}`} className="rounded p-0.5 text-ink-3 hover:bg-white hover:text-ink">
+                          <button onClick={t} aria-label={`Opções da etapa ${s.name}`} className="rounded p-0.5 text-ink-3 hover:bg-surface hover:text-ink">
                             <MoreHorizontal className="h-4 w-4" />
                           </button>
                         )}
@@ -366,7 +366,7 @@ export default function Funis() {
                     {items.map(card)}
                     <button
                       onClick={() => setCreatingIn(s.id)}
-                      className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-[#c5ced6] py-2 text-[12.5px] text-ink-3 hover:border-brand-400 hover:text-brand-600"
+                      className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-line py-2 text-[12.5px] text-ink-3 hover:border-brand-400 hover:text-brand-600"
                     >
                       <Plus className="h-3.5 w-3.5" /> Adicionar
                     </button>
@@ -381,7 +381,7 @@ export default function Funis() {
                   setStages(stages);
                   setRenaming(stages[stages.length - 1]!.id);
                 }}
-                className="flex h-14 w-[220px] shrink-0 items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-[#c5ced6] text-[13px] font-medium text-ink-3 hover:border-brand-400 hover:text-brand-600"
+                className="flex h-14 w-[220px] shrink-0 items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-line text-[13px] font-medium text-ink-3 hover:border-brand-400 hover:text-brand-600"
               >
                 <Plus className="h-4 w-4" /> Nova etapa
               </button>
@@ -394,7 +394,7 @@ export default function Funis() {
                 {...dropProps('perdido')}
                 className={cn(
                   'pointer-events-auto flex h-16 w-60 items-center justify-center gap-2 rounded-2xl border-2 border-dashed font-medium shadow-pop transition',
-                  overStage === 'perdido' ? 'border-critical bg-[#fdecec] text-critical' : 'border-[#f2b8b8] bg-white text-[#a52828]',
+                  overStage === 'perdido' ? 'border-critical bg-[color-mix(in_oklab,var(--critical)_18%,var(--surface))] text-critical' : 'border-critical/50 bg-surface text-critical',
                 )}
               >
                 <ThumbsDown className="h-5 w-5" /> Perdido
@@ -403,7 +403,7 @@ export default function Funis() {
                 {...dropProps('ganho')}
                 className={cn(
                   'pointer-events-auto flex h-16 w-60 items-center justify-center gap-2 rounded-2xl border-2 border-dashed font-medium shadow-pop transition',
-                  overStage === 'ganho' ? 'border-good bg-[#e8f6e8] text-[#0b6b0b]' : 'border-[#b6e2b6] bg-white text-[#0b6b0b]',
+                  overStage === 'ganho' ? 'border-good bg-[color-mix(in_oklab,var(--good)_18%,var(--surface))] text-good' : 'border-good/50 bg-surface text-good',
                 )}
               >
                 <ThumbsUp className="h-5 w-5" /> Ganho

@@ -32,7 +32,7 @@ Projeto construído a partir do material _“Instale seu próprio CRM de WhatsAp
 | **Base de conhecimento** | Perguntas frequentes, textos, links e documentos, com um campo para testar o que a IA encontraria |
 | **Conexões** | WhatsApp por QR Code, API oficial (Meta) ou provedor parceiro, com fila e status. Só administradores conectam números, e cada número pode limitar quem inicia conversas |
 | **Análises** | Conversão, receita, ticket médio, funil por etapa, origem dos leads, motivos de perda, desempenho da equipe, **NPS** (nota geral, distribuição, NPS por atendente e comentários) e campanhas do Meta Ads (CPL, CTR, custo por venda), com exportação |
-| **Configurações** | Empresa e horários, pesquisa NPS (envio automático ao finalizar o atendimento), equipe e perfis (admin, supervisor, atendente), departamentos, etiquetas, campos personalizados (texto, texto longo, e-mail, número, data, hora, lista — e cada um vira variável `{{campo}}` nas mensagens), respostas rápidas, **aparência white label** (cor e nome), integrações de IA, checklist da instalação e backup |
+| **Configurações** | Empresa e horários, pesquisa NPS (envio automático ao finalizar o atendimento), equipe e perfis (admin, supervisor, atendente), departamentos, etiquetas, campos personalizados (texto, texto longo, e-mail, número, data, hora, lista — e cada um vira variável `{{campo}}` nas mensagens), respostas rápidas, **aparência white label** (cor, nome e tema claro, escuro ou do sistema), integrações de IA, checklist da instalação e backup |
 
 **Ordem de atendimento de uma mensagem nova:** primeiro o chatbot (se houver fluxo ativo na conexão), depois o agente de IA e por fim a fila humana. Quando um atendente responde, a IA pausa sozinha.
 
@@ -61,6 +61,8 @@ AI_PROVIDER=anthropic AI_API_KEY=sua-chave npm start   # porta 8787
 ```
 
 Com o `npm run dev` rodando, o Vite encaminha `/api` para o servidor. A chave **fica só no servidor**, nunca no navegador.
+
+Se a porta 8787 já estiver em uso por outro programa, escolha outra e passe a mesma para os dois lados: `PORT=8790 npm start` no servidor e `API_PORT=8790 npm run dev` na interface.
 
 ---
 
@@ -178,13 +180,15 @@ Pronto e testado:
 - Sincronização multiusuário via Supabase, com RLS testado em PostgreSQL.
 - API de IA (Anthropic ou OpenAI).
 - WhatsApp real por QR Code (Evolution API v2): QR na tela Conexões, recebimento por webhook, envio, confirmação de entrega/leitura.
+- API oficial do WhatsApp (Meta Cloud API): webhook assinado, envio de texto dentro da janela de 24 h e de templates aprovados fora dela.
 - Automação 24 h no servidor: chatbot, IA, follow-ups, disparos e mensagens agendadas sem navegador aberto.
 - Instalador e Docker.
 
 Limitações conhecidas (detalhes em [docs/WHATSAPP.md](docs/WHATSAPP.md)):
 
 - Envio de **arquivos** pelo WhatsApp ainda não existe (só texto). Mídia recebida aparece como aviso (“📷 Imagem”, “🎤 Áudio”), sem o arquivo.
-- API oficial da Meta e provedores parceiros continuam só cadastrais.
+- Provedores parceiros continuam só cadastrais. Templates da Meta com variáveis ainda não são enviados.
+- A API oficial foi testada contra uma Meta simulada; confirme com um número real antes de usar com clientes.
 - O formato da Evolution foi implementado pela documentação v2 e testado contra um simulador; confirme no roteiro de teste com a sua Evolution antes de usar com clientes.
 
 ## Licença

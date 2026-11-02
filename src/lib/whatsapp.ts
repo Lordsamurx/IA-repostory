@@ -8,7 +8,7 @@
 import { useStore } from '../store/useStore';
 import type { Connection, Conversation, LeadSource, Message, MessageKind } from '../types';
 import { agentForConnection } from './ai';
-import { nowIso, onlyDigits, uid } from './utils';
+import { isWindowOpen, nowIso, onlyDigits, uid } from './utils';
 
 /**
  * Chave de comparação de telefone. No Brasil o WhatsApp às vezes entrega o celular sem
@@ -149,6 +149,14 @@ export function applyAck(id: string, status: Message['status']) {
   return true;
 }
 
+/** Falha de envio informada depois pelo WhatsApp (API oficial: o envio é aceito e recusado no webhook). */
+export function applyFailure(id: string, error: string) {
+  const msg = useStore.getState().messages.find((m) => m.externalId === id);
+  if (!msg || msg.delivery === 'failed') return false;
+  markFailed(msg.id, error);
+  return true;
+}
+
 /** Estado da conexão informado pelo gateway (QR lido, celular desconectado, etc.). */
 export function applyConnectionState(instance: string, state: 'open' | 'close' | 'connecting', phone?: string) {
   const st = useStore.getState();
@@ -166,6 +174,8 @@ export interface OutboundItem {
   instance: string;
   phone: string;
   text: string;
+  /** API oficial: template aprovado pela Meta, enviado no lugar do texto. */
+  template?: { name: string; lang: string };
 }
 
 const SENDABLE: MessageKind[] = ['text'];
@@ -189,6 +199,10 @@ export function pendingOutbound(maxAgeMs: number, now = Date.now()): OutboundIte
     if (conn.status !== 'conectado') failed.push([m.id, 'WhatsApp desconectado: reconecte em Conexões e envie de novo']);
     else if (!contact?.phone) failed.push([m.id, 'Contato sem telefone']);
     else if (!SENDABLE.includes(m.kind)) failed.push([m.id, 'Envio de arquivos pelo WhatsApp ainda não está disponível']);
+    else if (conn.type === 'api_oficial' && m.templateName)
+      out.push({ messageId: m.id, instance: conn.instance, phone: onlyDigits(contact.phone), text: m.body, template: { name: m.templateName, lang: m.templateLang ?? 'pt_BR' } });
+    // a Meta só aceita texto livre até 24 h depois da última mensagem do cliente
+    else if (conn.type === 'api_oficial' && !isWindowOpen(st.messages, conv.id, now)) failed.push([m.id, 'Janela de 24 h fechada: envie um template aprovado pela Meta']);
     else out.push({ messageId: m.id, instance: conn.instance, phone: onlyDigits(contact.phone), text: m.body });
   }
   for (const [id, error] of failed) markFailed(id, error);

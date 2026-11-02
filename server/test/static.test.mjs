@@ -19,7 +19,7 @@ describe('health e cabeçalhos', () => {
     const r = await fetch(`${app.url}/api/health`);
     assert.equal(r.status, 200);
     const j = await r.json();
-    assert.deepEqual(j, { ok: true, ai: false, provider: 'anthropic', supabase: false, automation: false, whatsapp: false });
+    assert.deepEqual(j, { ok: true, ai: false, provider: 'anthropic', supabase: false, automation: false, whatsapp: false, meta: false });
     assert.equal(r.headers.get('cache-control'), 'no-store');
   });
 

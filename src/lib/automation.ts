@@ -32,7 +32,9 @@ export async function startAutomation(): Promise<boolean> {
   started = true;
   if (!host.server && (await serverRunsAutomation())) return false;
 
-  // A IA responde sempre que chega mensagem nova em conversa com agente ativo
+  // A IA responde sempre que chega mensagem nova em conversa com agente ativo.
+  // As já vistas ficam marcadas: uma sincronização que reordena a lista não as trata como novas.
+  const seen = new Set(useStore.getState().messages.filter((m) => m.direction === 'in').map((m) => m.id));
   let lastCount = useStore.getState().messages.length;
   const unsubscribe = useStore.subscribe((s) => {
     if (s.messages.length <= lastCount) {
@@ -42,7 +44,8 @@ export async function startAutomation(): Promise<boolean> {
     const fresh = s.messages.slice(lastCount);
     lastCount = s.messages.length;
     for (const m of fresh) {
-      if (m.direction !== 'in') continue;
+      if (m.direction !== 'in' || seen.has(m.id)) continue;
+      seen.add(m.id);
       // resposta de pesquisa NPS > chatbot > IA
       if (handleNps(m.conversationId, m)) continue;
       if (handleChatbot(m.conversationId, m)) continue;

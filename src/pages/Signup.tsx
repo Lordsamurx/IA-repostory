@@ -45,11 +45,11 @@ export default function Signup() {
           <Input type="password" minLength={6} required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
         </Field>
         {confirm && (
-          <p className="rounded-lg bg-[#fff6e0] px-3 py-2 text-[13px] text-[#8a5a00]">
+          <p className="rounded-lg bg-[color-mix(in_oklab,var(--warning)_16%,var(--surface))] px-3 py-2 text-[13px] text-[color-mix(in_oklab,var(--warning)_78%,var(--ink))]">
             Isso substitui os dados de demonstração salvos neste navegador. Clique de novo para confirmar.
           </p>
         )}
-        {error && <p className="rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] text-[#a52828]">{error}</p>}
+        {error && <p className="rounded-lg bg-[color-mix(in_oklab,var(--critical)_14%,var(--surface))] px-3 py-2 text-[13px] text-[color-mix(in_oklab,var(--critical)_80%,var(--ink))]">{error}</p>}
         <Button type="submit" size="lg" className="w-full">
           {confirm ? 'Confirmar e criar' : 'Criar conta'}
         </Button>

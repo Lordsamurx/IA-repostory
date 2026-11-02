@@ -239,7 +239,7 @@ export default function Contatos() {
                             <button title="Editar" className="rounded-md p-1.5 text-ink-3 hover:bg-canvas hover:text-ink" onClick={() => setEditing(c)}>
                               <Pencil className="h-4 w-4" />
                             </button>
-                            <button title="Excluir" className="rounded-md p-1.5 text-ink-3 hover:bg-[#fdecec] hover:text-critical" onClick={() => setDeleting([c.id])}>
+                            <button title="Excluir" className="rounded-md p-1.5 text-ink-3 hover:bg-[color-mix(in_oklab,var(--critical)_14%,var(--surface))] hover:text-critical" onClick={() => setDeleting([c.id])}>
                               <Trash2 className="h-4 w-4" />
                             </button>
                           </div>

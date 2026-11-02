@@ -5,6 +5,7 @@
  *  - GET  /api/health    → status do servidor e se a IA está configurada.
  *  - POST /api/ai/reply  → gera a resposta do agente de IA (a chave fica só aqui).
  *  - /api/whatsapp/*     → conexão por QR Code (Evolution API) e webhook de mensagens.
+ *  - /api/whatsapp/meta  → API oficial (Meta Cloud API): verificação e webhook assinado.
  *  - Worker de automação → com SUPABASE_SERVICE_ROLE_KEY, chatbot, IA, follow-ups e
  *    disparos rodam aqui 24 h (server/worker/automation.mjs, gerado no build).
  *
@@ -19,6 +20,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
 import { createEvolution, instanceName, parseWebhook } from './whatsapp.mjs';
+import { DEFAULT_META_BASE_URL, createMeta, isMetaInstance, parseMetaWebhook, verifyMetaSignature } from './meta.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 
@@ -104,6 +106,12 @@ export function loadConfig(env = process.env) {
     webhookToken: env.WHATSAPP_WEBHOOK_TOKEN ?? '',
     // endereço que a Evolution chama; com a Evolution no mesmo docker-compose use http://app:8787/api/whatsapp/webhook
     webhookUrl: env.WHATSAPP_WEBHOOK_URL || (publicUrl ? `${publicUrl}/api/whatsapp/webhook` : ''),
+    // API oficial (Meta Cloud API): token permanente e Phone Number ID do número
+    metaToken: env.WHATSAPP_META_TOKEN ?? '',
+    metaPhoneId: env.WHATSAPP_META_PHONE_ID ?? '',
+    metaVerifyToken: env.WHATSAPP_META_VERIFY_TOKEN ?? '',
+    metaAppSecret: env.WHATSAPP_META_APP_SECRET ?? '',
+    metaBaseUrl: (env.WHATSAPP_META_BASE_URL || DEFAULT_META_BASE_URL).replace(/\/+$/, ''),
   };
 }
 
@@ -281,6 +289,7 @@ export function normalizeInput(body) {
 /**
  * runtime.worker: o worker de automação, quando ligado (ver startWorker()).
  * runtime.evolution: cliente do gateway (os testes injetam um falso).
+ * runtime.meta: cliente da API oficial da Meta (idem).
  */
 export function createServer(input = loadConfig(), runtime = {}) {
   // valores undefined não apagam o padrão
@@ -290,6 +299,8 @@ export function createServer(input = loadConfig(), runtime = {}) {
   const limitedWa = createRateLimiter(120);
   const evolution =
     runtime.evolution ?? (cfg.evolutionUrl && cfg.evolutionApiKey ? createEvolution({ url: cfg.evolutionUrl, apiKey: cfg.evolutionApiKey }) : null);
+  const meta =
+    runtime.meta ?? (cfg.metaToken && cfg.metaPhoneId ? createMeta({ token: cfg.metaToken, phoneId: cfg.metaPhoneId, baseUrl: cfg.metaBaseUrl }) : null);
   /** sha256(token) -> validade. Evita chamar o Supabase a cada mensagem. */
   const tokenCache = new Map();
   const anthropic =
@@ -423,7 +434,7 @@ export function createServer(input = loadConfig(), runtime = {}) {
     return [500, 'erro interno'];
   }
 
-  async function readJsonBody(req, maxBytes = LIMITS.bodyBytes) {
+  async function readRawBody(req, maxBytes = LIMITS.bodyBytes) {
     const declared = Number(req.headers['content-length'] ?? 0);
     if (declared > maxBytes) throw httpError(413, 'payload muito grande');
     let size = 0;
@@ -433,15 +444,21 @@ export function createServer(input = loadConfig(), runtime = {}) {
       if (size > maxBytes) throw httpError(413, 'payload muito grande');
       chunks.push(chunk);
     }
+    return Buffer.concat(chunks);
+  }
+
+  function parseJson(raw) {
     let parsed;
     try {
-      parsed = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      parsed = JSON.parse(raw.toString('utf8') || '{}');
     } catch {
       throw httpError(400, 'JSON inválido');
     }
     if (!isObj(parsed)) throw httpError(400, 'o corpo precisa ser um objeto JSON');
     return parsed;
   }
+
+  const readJsonBody = async (req, maxBytes = LIMITS.bodyBytes) => parseJson(await readRawBody(req, maxBytes));
 
   /** Resposta da IA a partir do corpo já lido (usada pela rota e pelo worker). */
   async function aiReply(body) {
@@ -479,9 +496,13 @@ export function createServer(input = loadConfig(), runtime = {}) {
       const [status, message] = failure(err);
       return send(res, status, { error: message });
     }
+    send(res, 200, { ok: true, handled: ingestAll(worker, parseWebhook(body)) });
+  }
+
+  /** Repassa os eventos ao worker; só instâncias deste CRM (o mesmo gateway pode atender outros sistemas). */
+  function ingestAll(worker, events) {
     let handled = 0;
-    for (const event of parseWebhook(body)) {
-      // só instâncias deste CRM (o mesmo gateway pode atender outros sistemas)
+    for (const event of events) {
       const instance = event.instance ?? event.message?.instance;
       if (instance && !worker.hasInstance(instance)) continue;
       try {
@@ -490,7 +511,54 @@ export function createServer(input = loadConfig(), runtime = {}) {
         console.error('[whatsapp/webhook]', err);
       }
     }
-    send(res, 200, { ok: true, handled });
+    return handled;
+  }
+
+  /**
+   * Webhook da Meta. GET: verificação do endereço (hub.verify_token). POST: eventos,
+   * aceitos só com a assinatura X-Hub-Signature-256 do App Secret.
+   */
+  async function handleMetaWebhook(req, res, url) {
+    if (req.method === 'GET') {
+      const token = url.searchParams.get('hub.verify_token') ?? '';
+      if (url.searchParams.get('hub.mode') !== 'subscribe' || !sameSecret(token, cfg.metaVerifyToken)) {
+        return send(res, 403, { error: 'verify_token inválido' });
+      }
+      res.writeHead(200, { ...SEC, 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(text(url.searchParams.get('hub.challenge') ?? '', 200));
+    }
+    if (req.method !== 'POST') return send(res, 405, { error: 'método não permitido' });
+    if (!cfg.metaAppSecret) return send(res, 503, { error: 'WHATSAPP_META_APP_SECRET não configurado' });
+    let body;
+    try {
+      const raw = await readRawBody(req, LIMITS.webhookBytes);
+      if (!verifyMetaSignature(cfg.metaAppSecret, raw, req.headers['x-hub-signature-256'])) return send(res, 401, { error: 'assinatura inválida' });
+      body = parseJson(raw);
+    } catch (err) {
+      const [status, message] = failure(err);
+      return send(res, status, { error: message });
+    }
+    const worker = runtime.worker;
+    if (!worker) return send(res, 503, { error: 'automação do servidor desligada (falta SUPABASE_SERVICE_ROLE_KEY)' });
+    send(res, 200, { ok: true, handled: ingestAll(worker, parseMetaWebhook(body)) });
+  }
+
+  /** Tela Conexões: liga uma conexão "API oficial" ao número da Meta configurado no servidor. Só administradores. */
+  async function handleMetaLink(req, res) {
+    if (!meta) return send(res, 503, { error: 'API oficial não configurada no servidor (WHATSAPP_META_TOKEN e WHATSAPP_META_PHONE_ID)' });
+    if (limitedWa(clientIp(req))) return send(res, 429, { error: 'muitas requisições, aguarde um minuto' });
+    if (!(await isAuthorized(req, { admin: true }))) return send(res, 401, { error: 'só administradores conectam números' });
+    try {
+      const info = await meta.info();
+      return send(res, 200, { instance: meta.instance, ...info });
+    } catch (err) {
+      if (err?.detail !== undefined) {
+        console.error('[whatsapp/meta]', err.message, err.detail);
+        return send(res, 502, { error: err.userMessage ?? `a Meta recusou o pedido (HTTP ${err.status})` });
+      }
+      const [status, message] = failure(err);
+      send(res, status, { error: message });
+    }
   }
 
   /** Rotas da tela Conexões: conectar (QR), consultar estado e desconectar. Só administradores. */
@@ -574,7 +642,13 @@ export function createServer(input = loadConfig(), runtime = {}) {
         supabase: Boolean(cfg.supabaseUrl),
         automation: Boolean(runtime.worker),
         whatsapp: Boolean(evolution),
+        meta: Boolean(meta),
       });
+    }
+    if (pathname === '/api/whatsapp/meta') return handleMetaWebhook(req, res, url);
+    if (pathname === '/api/whatsapp/meta/link') {
+      if (req.method !== 'POST') return send(res, 405, { error: 'método não permitido' });
+      return handleMetaLink(req, res);
     }
     if (pathname === '/api/whatsapp/webhook') {
       if (req.method !== 'POST') return send(res, 405, { error: 'método não permitido' });
@@ -607,6 +681,7 @@ export function createServer(input = loadConfig(), runtime = {}) {
   server.timeout = 120_000;
   server.aiReply = aiReply;
   server.evolution = evolution;
+  server.meta = meta;
   return server;
 }
 
@@ -626,7 +701,15 @@ export async function startWorker(cfg, server, runtime, file = join(here, 'worke
       supabaseUrl: cfg.supabaseUrl,
       serviceKey: cfg.supabaseServiceKey,
       ai: cfg.aiApiKey ? (body) => server.aiReply(body) : undefined,
-      sendText: server.evolution ? (instance, phone, text) => server.evolution.sendText(instance, phone, text) : undefined,
+      sendText:
+        server.evolution || server.meta
+          ? async (instance, phone, text) => {
+              const via = isMetaInstance(instance) ? server.meta : server.evolution;
+              if (!via) throw new Error(`nenhum gateway configurado para a instância ${instance}`);
+              return isMetaInstance(instance) ? via.sendText(phone, text) : via.sendText(instance, phone, text);
+            }
+          : undefined,
+      sendTemplate: server.meta ? (instance, phone, name, lang) => server.meta.sendTemplate(phone, name, lang) : undefined,
     });
     return runtime.worker;
   } catch (err) {
@@ -647,6 +730,7 @@ export async function start(cfg = loadConfig()) {
     console.log(`Supabase: ${cfg.supabaseUrl ? 'configurado' : 'não configurado (modo local)'}`);
     console.log(`Automação: ${runtime.worker ? 'no servidor (24 h)' : 'no navegador do administrador'}`);
     console.log(`WhatsApp: ${server.evolution ? `Evolution API (${cfg.evolutionUrl})` : 'não configurado (conexões simuladas)'}`);
+    console.log(`API oficial (Meta): ${server.meta ? `número ${cfg.metaPhoneId}` : 'não configurada'}`);
   });
   const shutdown = async () => {
     server.close();

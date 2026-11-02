@@ -59,7 +59,19 @@ interface Actions {
   sendMessage: (
     conversationId: string,
     body: string,
-    opts?: { kind?: MessageKind; author?: string; fileName?: string; fileData?: string; replyTo?: string; forwarded?: boolean; mentions?: string[]; raw?: boolean },
+    opts?: {
+      kind?: MessageKind;
+      author?: string;
+      fileName?: string;
+      fileData?: string;
+      replyTo?: string;
+      forwarded?: boolean;
+      mentions?: string[];
+      raw?: boolean;
+      /** API oficial da Meta: template aprovado (obrigatório com a janela de 24 h fechada) */
+      templateName?: string;
+      templateLang?: string;
+    },
   ) => void;
   requestNps: (conversationId: string) => void;
   receiveMessage: (conversationId: string, body: string, kind?: MessageKind, extra?: Pick<Message, 'externalId'>) => void;
@@ -222,6 +234,8 @@ export const useStore = create<Store>()(
           replyTo: opts.replyTo,
           forwarded: opts.forwarded,
           mentions: opts.mentions?.length ? opts.mentions : undefined,
+          templateName: opts.templateName || undefined,
+          templateLang: opts.templateName ? opts.templateLang || 'pt_BR' : undefined,
         };
         const isNote = msg.kind === 'note';
         set((st) => ({

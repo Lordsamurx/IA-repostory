@@ -51,7 +51,7 @@ export default function Disparos() {
         }
       />
       <div className="mx-auto max-w-5xl space-y-4 p-6">
-        <div className="flex gap-3 rounded-xl border border-[#fde7b0] bg-[#fffaf0] p-4 text-[13px] text-[#6b4a00]">
+        <div className="flex gap-3 rounded-xl border border-[color-mix(in_oklab,var(--warning)_35%,var(--line))] bg-[color-mix(in_oklab,var(--warning)_14%,var(--surface))] p-4 text-[13px] text-[color-mix(in_oklab,var(--warning)_80%,var(--ink))]">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             Disparos em massa por conexão de <b>QR Code</b> aumentam o risco de banimento do número. Use intervalos de pelo menos 15 segundos, envie só para
@@ -286,6 +286,19 @@ function BroadcastModal({ broadcast, onClose }: { broadcast: Broadcast; onClose:
           <Field label="Mensagem" hint="Variáveis: {{nome}} e {{empresa}}. Use *texto* para negrito no WhatsApp.">
             <Textarea rows={4} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
           </Field>
+
+          {connections.find((c) => c.id === form.connectionId)?.type === 'api_oficial' && (
+            <Field
+              label="Nome do Template aprovado na Meta (HSM)"
+              hint="Obrigatório na API Oficial para contatos fora da janela de 24h (ex.: promo_clientes_v1)."
+            >
+              <Input
+                value={form.templateName ?? ''}
+                onChange={(e) => setForm({ ...form, templateName: e.target.value.trim() || undefined })}
+                placeholder="ex.: comunicado_oficial"
+              />
+            </Field>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label={`Intervalo entre mensagens: ~${form.intervalSec}s`} hint="Varia ±30% para parecer envio humano.">

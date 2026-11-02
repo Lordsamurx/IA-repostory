@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useStore } from './store/useStore';
-import { applyBrand } from './lib/utils';
+import { applyBrand, applyTheme } from './lib/utils';
 import { isSupabaseMode, supabase } from './lib/supabase';
 import { loadRemote, startSync, stopSync } from './lib/sync';
 import { startAutomation } from './lib/automation';
@@ -48,12 +48,21 @@ function Protected({ children }: { children: ReactNode }) {
 
 export default function App() {
   const brand = useStore((s) => s.settings.brandColor);
+  const theme = useStore((s) => s.settings.theme ?? 'light');
   const companyName = useStore((s) => s.settings.companyName);
   const sessionUserId = useStore((s) => s.sessionUserId);
   const hydrated = useStore((s) => s.hydrated);
   const [booting, setBooting] = useState(isSupabaseMode);
 
   useEffect(() => applyBrand(brand), [brand]);
+  useEffect(() => {
+    applyTheme(theme);
+    if (theme !== 'system' || typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => applyTheme('system');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [theme]);
   useEffect(() => {
     document.title = `${companyName} · CRM`;
   }, [companyName]);
